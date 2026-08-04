@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cerf_engine import CERFEngine
+from src.analytics import CERFEngine
 
 @pytest.fixture
 def temp_env():

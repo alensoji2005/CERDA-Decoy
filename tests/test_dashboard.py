@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from dashboard import CERDDashboard
+from src.dashboard import CERDDashboard
 
 @pytest.fixture
 def dash_env():
