@@ -1044,18 +1044,19 @@ class CERDDashboard:
 
 ***
 
-## 12. Current Implementation State (v1.0) & Future Roadmap
+## 12. Current Implementation State & Roadmap
 
-### 12.1 Completed Prototype (v1.0)
-The v1.0 architecture is fully implemented, packaged under `src/`, and verified with automated test suites:
-- **Module A (`src/decoy/`):** Async non-blocking SSH/HTTP listeners with a stateful pseudo-filesystem and regime perturbation engine.
-- **Module B (`src/analytics/`):** AST sanitization, 13 timing feature extractors, PCA dimensionality reduction, and LSH deterministic fingerprint generator ($\ge 90\%$ accuracy benchmark proven).
-- **Module C (`src/dashboard/`):** Streamlit UI with Retro CLI vs Academic theme toggle, NetworkX topology graph, 2D Tactics scatter plot, Regime timeline, and STIX/JSON threat intel exporter.
+### 12.1 Completed Features & Modules (v1.0 & v2.0 Extensions)
+The architecture is fully implemented, packaged under `src/`, and verified with 14 automated unit/acceptance tests (`pytest`):
+- **Module A (`src/decoy/`):** Async non-blocking SSH/HTTP listeners with a stateful pseudo-filesystem and telemetry loggers (`server.py`, `pseudo_fs.py`, `telemetry.py`).
+- **Reinforcement Learning Perturbation Scheduler [Patent Claim 5 Implemented]:** Contextual Q-learning agent (`src/decoy/rl_scheduler.py`) that dynamically selects perturbation regimes ($R_0 \dots R_3$) to maximize information gain while avoiding session drops. Verified with `tests/test_rl_scheduler.py` (Tests RL1–RL4).
+- **Module B (`src/analytics/`):** AST sanitization, 13 log-scaled timing feature extractors, PCA dimensionality reduction, and 64-bit LSH deterministic fingerprint generator (`cerf_engine.py`, `features.py`, `embedding.py`, `clustering.py`). Proven $\ge 90\%$ accuracy benchmark.
+- **Module C (`src/dashboard/`):** Streamlit UI with Retro CLI vs Academic theme toggle, NetworkX topology graph, 2D Tactics scatter plot, Regime timeline, and STIX/JSON threat intel exporter (`src/dashboard/app.py`, `visualizations.py`).
 
-### 12.2 Architectural Evolution (v2.0 Ideas)
-1. **Reinforcement Learning Perturbation Scheduler:** Dynamic regime selection maximizing entropy reduction of threat actor embeddings.
-2. **TCP Socket Tarpitting:** Network-layer ACK delay injection for OS-level stack fingerprinting.
-3. **LLM-Driven Decoy Filesystem:** Generative context-aware honeypot response generation.
+### 12.2 Remaining Architectural Roadmap (v2.0 Ideas)
+1. **TCP Socket Tarpitting (Patent Claim 6):** Network-layer ACK delay injection for OS-level stack fingerprinting.
+2. **LLM-Driven Decoy Filesystem (Patent Claim 7):** Generative context-aware honeypot response generation.
+3. **Sequence-to-Vector Transformer Model (Patent Claim 8):** Time-series temporal fingerprinting for inter-command delay sequences.
 4. **Time-Series Database Backend:** Migration to ClickHouse/TimescaleDB for high-throughput enterprise scale.
 
 
