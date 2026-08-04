@@ -6,12 +6,12 @@ from .pseudo_fs import PseudoFilesystem
 from .perturbation import PerturbationEngine
 
 class DecoyServer:
-    def __init__(self, host: str = "0.0.0.0", ssh_port: int = 2222, http_port: int = 8080, telemetry_file: str = "telemetry.csv"):
+    def __init__(self, host: str = "0.0.0.0", ssh_port: int = 2222, http_port: int = 8080, telemetry_file: str = "telemetry.csv", use_rl: bool = False):
         self.host = host
         self.ssh_port = ssh_port
         self.http_port = http_port
         self.logger = TelemetryLogger(telemetry_file)
-        self.perturbation_engine = PerturbationEngine()
+        self.perturbation_engine = PerturbationEngine(use_rl=use_rl)
         
     async def handle_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, protocol: str):
         session_id = f"session_{uuid.uuid4().hex[:8]}"
@@ -21,6 +21,8 @@ class DecoyServer:
         fs = PseudoFilesystem()
         cmd_index = 0
         last_cmd_time = time.monotonic_ns()
+        last_regime = "baseline"
+        last_dt = 0
         
         writer.write(f"CERDA Decoy Shell ({protocol})\n$ ".encode())
         await writer.drain()
@@ -39,8 +41,14 @@ class DecoyServer:
                 delta_t_ns = now_ns - last_cmd_time
                 last_cmd_time = now_ns
                 
-                regime = self.perturbation_engine.get_regime_for_command(cmd_index)
+                regime = self.perturbation_engine.get_regime_for_command(cmd_index, last_regime, delta_t_ns)
                 
+                if self.perturbation_engine.use_rl and self.perturbation_engine.rl_scheduler and cmd_index > 0:
+                    reward = self.perturbation_engine.rl_scheduler.compute_reward(delta_t_ns, regime)
+                    self.perturbation_engine.rl_scheduler.update(
+                        cmd_index - 1, last_regime, last_dt, regime, reward, cmd_index, delta_t_ns
+                    )
+                    
                 out, new_path, fs_weight = fs.execute_command(raw_cmd)
                 delay_ns = await self.perturbation_engine.apply_delay(regime, fs_weight)
                 
@@ -63,6 +71,9 @@ class DecoyServer:
                 
                 writer.write((out + f"$ ").encode())
                 await writer.drain()
+                
+                last_regime = regime.value
+                last_dt = delta_t_ns
                 cmd_index += 1
                 
         except Exception as e:
