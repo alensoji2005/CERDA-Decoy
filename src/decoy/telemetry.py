@@ -3,6 +3,7 @@ import time
 import pandas as pd
 from dataclasses import dataclass
 from typing import Optional
+import threading
 
 @dataclass
 class TelemetryEvent:
@@ -21,6 +22,7 @@ class TelemetryEvent:
 class TelemetryLogger:
     def __init__(self, filepath: str = "telemetry.csv"):
         self.filepath = filepath
+        self._lock = threading.Lock()
         self._ensure_header()
         
     def _ensure_header(self):
@@ -34,4 +36,33 @@ class TelemetryLogger:
             
     def log_event(self, event: TelemetryEvent):
         df = pd.DataFrame([event.__dict__])
-        df.to_csv(self.filepath, mode='a', header=False, index=False)
+        with self._lock:
+            df.to_csv(self.filepath, mode='a', header=False, index=False)
+
+@dataclass
+class RegimeScheduleEvent:
+    session_id: str
+    seed: int
+    command_index_start: int
+    command_index_end: int
+    regime: str
+
+class RegimeScheduleLogger:
+    def __init__(self, filepath: str = "regime_schedule.csv"):
+        self.filepath = filepath
+        self._lock = threading.Lock()
+        self._ensure_header()
+        
+    def _ensure_header(self):
+        if not os.path.exists(self.filepath):
+            df = pd.DataFrame(columns=[
+                "session_id", "seed", "command_index_start", 
+                "command_index_end", "regime"
+            ])
+            with self._lock:
+                df.to_csv(self.filepath, index=False)
+            
+    def log_event(self, event: RegimeScheduleEvent):
+        df = pd.DataFrame([event.__dict__])
+        with self._lock:
+            df.to_csv(self.filepath, mode='a', header=False, index=False)

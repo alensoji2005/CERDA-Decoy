@@ -84,10 +84,17 @@ class CERDDashboard:
         
         cerf_search = st.sidebar.text_input("CERF Hash Search")
         
+        date_range = None
+        if not self.telemetry_df.empty:
+            min_ts = pd.to_datetime(self.telemetry_df["timestamp_ns"].min(), unit='ns').date()
+            max_ts = pd.to_datetime(self.telemetry_df["timestamp_ns"].max(), unit='ns').date()
+            date_range = st.sidebar.date_input("Date Range", [min_ts, max_ts])
+        
         return {
             "protocol": selected_protocol,
             "threat_actors": selected_tas,
-            "cerf_search": cerf_search
+            "cerf_search": cerf_search,
+            "date_range": date_range
         }
 
     def get_filtered_data(self, filters: Dict[str, Any]) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -100,8 +107,13 @@ class CERDDashboard:
             if filters["cerf_search"]:
                 sdf = sdf[sdf["cerf"].str.contains(filters["cerf_search"], na=False)]
                 
-        if not tdf.empty and filters["protocol"] != "All":
-            tdf = tdf[tdf["protocol"] == filters["protocol"]]
+        if not tdf.empty:
+            if filters["protocol"] != "All":
+                tdf = tdf[tdf["protocol"] == filters["protocol"]]
+            if filters["date_range"] and len(filters["date_range"]) == 2:
+                start_date, end_date = filters["date_range"]
+                tdf_dates = pd.to_datetime(tdf["timestamp_ns"], unit='ns').dt.date
+                tdf = tdf[(tdf_dates >= start_date) & (tdf_dates <= end_date)]
             
         return sdf, tdf
 
@@ -149,14 +161,31 @@ class CERDDashboard:
             return "{}"
         actors = []
         for ta_id, group in self.sessions_df.groupby("threat_actor_id"):
+            session_ids = group["session_id"].tolist()
+            tdf_group = self.telemetry_df[self.telemetry_df["session_id"].isin(session_ids)]
+            
+            first_seen = datetime.utcnow().isoformat() + "Z"
+            last_seen = datetime.utcnow().isoformat() + "Z"
+            tactics = set(["Command Execution"])
+            
+            if not tdf_group.empty:
+                first_seen = pd.to_datetime(tdf_group["timestamp_ns"].min(), unit='ns').isoformat() + "Z"
+                last_seen = pd.to_datetime(tdf_group["timestamp_ns"].max(), unit='ns').isoformat() + "Z"
+                
+                cmds = " ".join(tdf_group["command_raw"].astype(str).tolist())
+                if "wget" in cmds or "curl" in cmds:
+                    tactics.add("Dropper")
+                if "ls" in cmds or "whoami" in cmds or "pwd" in cmds:
+                    tactics.add("Reconnaissance")
+                
             actors.append({
                 "threat_actor_id": ta_id,
                 "cerf": group["cerf"].iloc[0],
                 "associated_ips": group["source_ip"].unique().tolist(),
                 "num_sessions": len(group),
-                "tactics": ["Command Execution"],
-                "first_seen": datetime.utcnow().isoformat() + "Z",
-                "last_seen": datetime.utcnow().isoformat() + "Z"
+                "tactics": list(tactics),
+                "first_seen": first_seen,
+                "last_seen": last_seen
             })
         payload = {
             "export_timestamp": datetime.utcnow().isoformat() + "Z",

@@ -54,6 +54,28 @@ class PseudoFilesystem:
             output = "HTTP request sent, awaiting response... 200 OK\n"
             latency_regime_weight = 1
             
+        elif root == "touch":
+            if len(parts) > 1:
+                filename = parts[1]
+                if self.cwd not in self.virtual_tree:
+                    self.virtual_tree[self.cwd] = []
+                if filename not in self.virtual_tree[self.cwd]:
+                    self.virtual_tree[self.cwd].append(filename)
+            output = ""
+            latency_regime_weight = 1
+            
+        elif root == "rm":
+            if len(parts) > 1:
+                filename = parts[-1]
+                if self.cwd in self.virtual_tree and filename in self.virtual_tree[self.cwd]:
+                    self.virtual_tree[self.cwd].remove(filename)
+            output = ""
+            latency_regime_weight = 1
+            
+        elif root == "chmod":
+            output = ""
+            latency_regime_weight = 1
+            
         else:
             output = f"bash: {root}: command not found\n"
             

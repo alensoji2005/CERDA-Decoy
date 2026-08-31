@@ -1,4 +1,5 @@
 import os
+import json
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple
@@ -98,4 +99,15 @@ class CERFEngine:
         sessions_df = pd.DataFrame(meta_list)
         output_sessions_path = os.path.join(self.output_dir, "sessions.csv")
         sessions_df.to_csv(output_sessions_path, index=False)
+        
+        cerf_clusters = {}
+        if not sessions_df.empty:
+            for ta_id, group in sessions_df.groupby("threat_actor_id"):
+                cerf_clusters[ta_id] = {
+                    "cerf": group["cerf"].iloc[0],
+                    "sessions": group["session_id"].tolist()
+                }
+        with open(os.path.join(self.output_dir, "cerf_clusters.json"), "w") as f:
+            json.dump(cerf_clusters, f, indent=2)
+            
         return sessions_df

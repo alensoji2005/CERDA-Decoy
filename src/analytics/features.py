@@ -32,4 +32,23 @@ class FeatureExtractor:
             features["adaptation_speed"] = 0.0
             features["overall_std"] = 0.0
             
+        # Compute AST feature means
+        num_flags, has_url, has_pipe, has_redirection, has_subshell, num_args = [], [], [], [], [], []
+        for raw_cmd in session_df["command_raw"]:
+            tokens = str(raw_cmd).split()
+            args = tokens[1:] if len(tokens) > 1 else []
+            num_args.append(len(args))
+            num_flags.append(sum(1 for a in args if a.startswith("-")))
+            has_url.append(1.0 if any("http://" in a or "https://" in a for a in tokens) else 0.0)
+            has_pipe.append(1.0 if "|" in str(raw_cmd) else 0.0)
+            has_redirection.append(1.0 if ">" in str(raw_cmd) else 0.0)
+            has_subshell.append(1.0 if "$(" in str(raw_cmd) or "`" in str(raw_cmd) else 0.0)
+            
+        features["ast_num_flags"] = float(np.mean(num_flags)) if num_flags else 0.0
+        features["ast_has_url"] = float(np.mean(has_url)) if has_url else 0.0
+        features["ast_has_pipe"] = float(np.mean(has_pipe)) if has_pipe else 0.0
+        features["ast_has_redirection"] = float(np.mean(has_redirection)) if has_redirection else 0.0
+        features["ast_has_subshell"] = float(np.mean(has_subshell)) if has_subshell else 0.0
+        features["ast_num_args"] = float(np.mean(num_args)) if num_args else 0.0
+            
         return features
