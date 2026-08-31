@@ -73,7 +73,8 @@ def test_a2_perturbation_schedule_determinism():
     assert regimes1 == regimes2
 
 def test_a3_host_isolation():
-    pfs = PseudoFilesystem()
+    """Test A3: Attacker commands are not executed on host."""
+    pfs = PseudoFilesystem("test-session")
     out, new_path, weight = pfs.execute_command("rm -rf /")
     assert "command not found" in out or out == ""
     assert pfs.cwd == "/home/user"

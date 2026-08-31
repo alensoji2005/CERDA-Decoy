@@ -41,7 +41,7 @@ class DecoyServer:
             default_schedule=self.config.default_schedule
         )
         
-        fs = PseudoFilesystem()
+        fs = PseudoFilesystem(session_id)
         cmd_index = 0
         last_cmd_time = time.monotonic_ns()
         last_regime = "baseline"

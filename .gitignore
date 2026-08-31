@@ -5,3 +5,4 @@ models/
 *.csv
 *.json
 !requirements.txt
+.env

@@ -6,18 +6,16 @@ from typing import Dict, List, Tuple
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from .sanitization import sanitize_command
-from .features import FeatureExtractor
-from .embedding import CERFEmbeddingModel
+from .transformer_model import TransformerEmbeddingModel
 from .clustering import CERFClusterer
 
 class CERFEngine:
     def __init__(self, telemetry_path: str = "telemetry.csv", output_dir: str = "."):
         self.telemetry_path = telemetry_path
         self.output_dir = output_dir
-        self.feature_extractor = FeatureExtractor()
-        self.embedding_model = CERFEmbeddingModel(models_dir=os.path.join(output_dir, "models"))
+        self.embedding_model = TransformerEmbeddingModel(models_dir=os.path.join(output_dir, "models"))
         self.clusterer = CERFClusterer()
-        self.feature_vectors = {}
+        self.feature_sequences = {}
         self.session_meta = {}
         self.pca_vectors = {}
         
@@ -33,22 +31,15 @@ class CERFEngine:
 
     def extract_features(self, df: pd.DataFrame) -> Dict[str, np.ndarray]:
         sessions = df["session_id"].unique()
-        session_cmds = [" ".join(df[df["session_id"] == s]["command_raw"].tolist()) for s in sessions]
-        vec = TfidfVectorizer(max_features=10)
-        tfidf_matrix = vec.fit_transform(session_cmds).toarray()
-        if tfidf_matrix.shape[1] < 10:
-            tfidf_matrix = np.pad(tfidf_matrix, ((0, 0), (0, 10 - tfidf_matrix.shape[1])), mode='constant')
             
-        self.feature_vectors = {}
+        self.feature_sequences = {}
         self.session_meta = {}
         
         for idx, session_id in enumerate(sessions):
             sdf = df[df["session_id"] == session_id].sort_values("command_index")
-            t_feats = self.feature_extractor.extract_session_features(sdf)
-            text_vec = tfidf_matrix[idx]
+            seq_features = self.embedding_model.extract_sequence_features(sdf)
             
-            combined = np.concatenate([list(t_feats.values()), text_vec])
-            self.feature_vectors[session_id] = combined
+            self.feature_sequences[session_id] = seq_features
             
             dominant_regime = sdf["regime"].mode()[0] if not sdf["regime"].empty else "baseline"
             source_ip = sdf["source_ip"].iloc[0] if not sdf.empty else "0.0.0.0"
@@ -61,26 +52,26 @@ class CERFEngine:
                 "dominant_regime": dominant_regime
             }
             
-        return self.feature_vectors
+        return self.feature_sequences
 
-    def train_embedding_model(self, feature_vectors: Dict[str, np.ndarray]):
-        session_ids = list(feature_vectors.keys())
-        X = np.array([feature_vectors[s] for s in session_ids])
-        X_pca = self.embedding_model.fit_transform(X)
+    def train_embedding_model(self, feature_sequences: Dict[str, np.ndarray]):
+        session_ids = list(feature_sequences.keys())
+        X_seq_list = [feature_sequences[s] for s in session_ids]
+        X_pca = self.embedding_model.fit_transform(X_seq_list)
         for i, s in enumerate(session_ids):
             self.pca_vectors[s] = X_pca[i]
 
     def compute_cerf_for_session(self, session_id: str) -> str:
         if session_id not in self.pca_vectors:
-            vec = self.feature_vectors[session_id]
-            X_pca = self.embedding_model.fit_transform(np.array([vec]))
+            seq = self.feature_sequences[session_id]
+            X_pca = self.embedding_model.fit_transform([seq])
             self.pca_vectors[session_id] = X_pca[0]
         return self.embedding_model.compute_cerf_hash(self.pca_vectors[session_id])
 
     def run_pipeline(self) -> pd.DataFrame:
         df = self.load_and_sanitize()
         self.extract_features(df)
-        self.train_embedding_model(self.feature_vectors)
+        self.train_embedding_model(self.feature_sequences)
         
         session_cerfs = []
         meta_list = []
