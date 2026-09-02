@@ -23,9 +23,14 @@ def connect_and_attack(port):
             # Send command
             s.sendall((cmd + "\n").encode())
             
-            # Wait for response
-            response = s.recv(4096).decode(errors='ignore')
-            print(response, end="")
+            # Wait for response continuously until prompt is received
+            response_text = ""
+            while not response_text.endswith("$ "):
+                chunk = s.recv(4096).decode(errors='ignore')
+                if not chunk:
+                    break
+                print(chunk, end="", flush=True)
+                response_text += chunk
             
     except ConnectionRefusedError:
         print("[-] Connection refused. Make sure `python decoy_server.py` is running in another terminal!")

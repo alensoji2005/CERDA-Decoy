@@ -83,7 +83,7 @@ class CERFEngine:
             session_cerfs.append((session_id, cerf_hash))
             meta_list.append(meta)
             
-        session_to_ta = self.clusterer.cluster_sessions(session_cerfs, threshold=6)
+        session_to_ta = self.clusterer.cluster_sessions(session_cerfs, threshold=2)
         for meta in meta_list:
             meta["threat_actor_id"] = session_to_ta[meta["session_id"]]
             
@@ -102,3 +102,9 @@ class CERFEngine:
             json.dump(cerf_clusters, f, indent=2)
             
         return sessions_df
+
+if __name__ == "__main__":
+    print("[*] Running CERF Engine Analytics...")
+    engine = CERFEngine()
+    df = engine.run_pipeline()
+    print(f"[*] Processed {len(df)} sessions and updated sessions.csv")

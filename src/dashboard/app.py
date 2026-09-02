@@ -6,6 +6,7 @@ from typing import Dict, Any, Tuple
 
 import pandas as pd
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 from .visualizations import (
     build_cerf_network_figure,
@@ -24,15 +25,17 @@ RETRO_CLI_CSS = """
 </style>
 """
 
-ACADEMIC_CSS = """
+NEO_BRUTALISM_CSS = """
 <style>
-    .stApp { background-color: #F8FAFC; color: #0F172A; font-family: 'Inter', sans-serif; }
-    h1, h2, h3 { color: #1E293B !important; font-family: 'Merriweather', serif !important; }
-    h4, h5, h6, p, div, span, label { color: #334155 !important; }
-    .stDataFrame { border: 1px solid #CBD5E1; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-    div[data-baseweb="select"] > div { background-color: #FFFFFF; border: 1px solid #94A3B8; color: #0F172A; }
-    .stButton>button { background-color: #2563EB; border: none; color: #FFFFFF; border-radius: 4px; }
-    .stButton>button:hover { background-color: #1D4ED8; color: #FFFFFF; }
+    .stApp { background-color: #f4f4f0; color: #000000; font-family: 'Space Grotesk', sans-serif; }
+    h1, h2, h3, h4, h5, h6, p, div, span, label { color: #000000 !important; font-family: 'Space Grotesk', sans-serif !important; font-weight: 800; }
+    .stDataFrame { border: 4px solid #000000; box-shadow: 6px 6px 0px 0px #000000; }
+    div[data-baseweb="select"] > div { background-color: #ffffff; border: 4px solid #000000; color: #000000; box-shadow: 4px 4px 0px 0px #000000; border-radius: 0px; }
+    .stButton>button { background-color: #ff3b3b; border: 4px solid #000000; color: #000000; font-weight: 900; box-shadow: 4px 4px 0px 0px #000000; border-radius: 0px; text-transform: uppercase; }
+    .stButton>button:hover { background-color: #ffea00; box-shadow: 2px 2px 0px 0px #000000; transform: translate(2px, 2px); }
+    [data-testid="stMetricValue"] { font-size: 2.5rem !important; border-bottom: 4px solid #000; display: block; padding-bottom: 5px; word-wrap: break-word; }
+    .css-1544g2n { padding: 2rem; border: 4px solid #000; box-shadow: 8px 8px 0px 0px #000; background: #fff; margin-bottom: 2rem; overflow: hidden; }
+    hr { border-top: 4px solid #000 !important; }
 </style>
 """
 
@@ -62,12 +65,12 @@ class CERDDashboard:
             ])
 
     def render_theme_toggle(self) -> str:
-        theme = st.sidebar.radio("UI Theme", ["Academic / Scientific", "Retro CLI / Console"])
+        theme = st.sidebar.radio("UI Theme", ["Neo-Brutalism", "Retro CLI / Console"])
         if theme == "Retro CLI / Console":
             st.markdown(RETRO_CLI_CSS, unsafe_allow_html=True)
             return "retro"
         else:
-            st.markdown(ACADEMIC_CSS, unsafe_allow_html=True)
+            st.markdown(NEO_BRUTALISM_CSS, unsafe_allow_html=True)
             return "academic"
 
     def render_sidebar(self) -> Dict[str, Any]:
@@ -195,8 +198,8 @@ class CERDDashboard:
 
 
 def main():
-    st.markdown('<meta http-equiv="refresh" content="60">', unsafe_allow_html=True)
     st.set_page_config(page_title="CERDA Dashboard", layout="wide")
+    st_autorefresh(interval=3000, key="datarefresh")
     
     dash = CERDDashboard()
     dash.load_data()

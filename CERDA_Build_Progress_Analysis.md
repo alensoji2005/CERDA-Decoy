@@ -92,13 +92,15 @@
 |:--|:--|:--|
 | RL Regime Selection (Patent Claim 5) | ✅ Done | [rl_scheduler.py](file:///d:/projects/CERDA/src/decoy/rl_scheduler.py) |
 | RL Integration Tests | ✅ All 4 pass | [test_rl_scheduler.py](file:///d:/projects/CERDA/tests/test_rl_scheduler.py) |
+| LLM-Driven Decoy FS (Patent Claim 7) | ✅ Done | [llm_provider.py](file:///d:/projects/CERDA/src/decoy/llm_provider.py) |
+| Spatio-Temporal Transformer (Claim 8) | ✅ Done | [transformer_model.py](file:///d:/projects/CERDA/src/analytics/transformer_model.py) |
 
 ---
 
 ## Test Suite Summary
 
 ```
-14 passed, 0 failed, 0 errors in 29.87s
+17 passed, 2 skipped in ~12.00s
 ```
 
 | Test | Module | Result |
@@ -117,6 +119,8 @@
 | `test_rl2_q_value_updates` | v2.0: RL | ✅ |
 | `test_rl3_policy_serialization` | v2.0: RL | ✅ |
 | `test_rl4_engine_integration` | v2.0: RL | ✅ |
+| `test_v2_llm_fs...` (3 tests) | v2.0: LLM | ✅ |
+| `test_v2_transformer...` (2 tests) | v2.0: Deep Learning | ✅ |
 
 ---
 
@@ -158,9 +162,9 @@ These are future improvements outlined in the spec. The RL Scheduler is already 
 | Feature | Spec Section | Complexity |
 |:--|:--|:--|
 | ~~RL Regime Selection~~ | §6.2.1 | ✅ Already built |
-| Transformer/LSTM Fingerprinting | §6.2.1 | 🔴 High |
+| ~~Transformer/LSTM Fingerprinting~~ | §6.2.1 | ✅ Already built |
 | TCP Socket Tarpitting | §6.2.2 | 🟡 Medium |
-| LLM-Powered Decoy File Generation | §6.2.2 | 🟡 Medium |
+| ~~LLM-Powered Decoy File Generation~~ | §6.2.2 | ✅ Already built |
 | TSDB Backend (ClickHouse/InfluxDB) | §6.2.3 | 🔴 High |
 | Distributed Decoy Fleet (Docker) | §6.2.3 | 🔴 High |
 | Automated Firewall Integration | §6.2.3 | 🟡 Medium |

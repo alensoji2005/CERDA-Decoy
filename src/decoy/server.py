@@ -7,6 +7,7 @@ from typing import List, Tuple
 from .telemetry import TelemetryEvent, TelemetryLogger, RegimeScheduleEvent, RegimeScheduleLogger
 from .pseudo_fs import PseudoFilesystem
 from .perturbation import PerturbationEngine, Regime
+from src.analytics.cerf_engine import CERFEngine
 
 @dataclass
 class DecoyConfig:
@@ -17,9 +18,9 @@ class DecoyConfig:
     use_rl: bool = False
     default_schedule: List[Tuple[int, Regime]] = field(default_factory=lambda: [
         (0, Regime.R0_BASELINE),
-        (5, Regime.R1_SLOWDOWN),
-        (10, Regime.R2_JITTER),
-        (15, Regime.R3_FS_LATENCY)
+        (2, Regime.R1_SLOWDOWN),
+        (4, Regime.R2_JITTER),
+        (6, Regime.R3_FS_LATENCY)
     ])
 
 class DecoyServer:
@@ -103,8 +104,16 @@ class DecoyServer:
                 )
                 self.logger.log_event(event)
                 
-                writer.write((out + f"$ ").encode())
-                await writer.drain()
+                # TCP Tarpitting Feature (Patent Claim 5)
+                full_output = out + f"$ "
+                if regime == Regime.R3_FS_LATENCY:
+                    for char in full_output:
+                        writer.write(char.encode())
+                        await writer.drain()
+                        await asyncio.sleep(random.uniform(0.02, 0.08))  # Tarpit: Realistic network lag jitter
+                else:
+                    writer.write(full_output.encode())
+                    await writer.drain()
                 
                 last_regime = regime.value
                 last_dt = delta_t_ns
@@ -121,13 +130,26 @@ class DecoyServer:
                 regime=last_regime
             ))
             writer.close()
-            await writer.wait_closed()
+            try:
+                await writer.wait_closed()
+            except ConnectionError:
+                pass
+            
+    async def run_analytics_loop(self):
+        while True:
+            try:
+                engine = CERFEngine()
+                await asyncio.to_thread(engine.run_pipeline)
+            except Exception as e:
+                pass
+            await asyncio.sleep(3)
             
     async def start(self):
+        analytics_task = asyncio.create_task(self.run_analytics_loop())
         ssh_server = await asyncio.start_server(
             lambda r, w: self.handle_connection(r, w, "SSH"), self.host, self.config.ssh_port
         )
         http_server = await asyncio.start_server(
             lambda r, w: self.handle_connection(r, w, "HTTP"), self.host, self.config.http_port
         )
-        await asyncio.gather(ssh_server.serve_forever(), http_server.serve_forever())
+        await asyncio.gather(ssh_server.serve_forever(), http_server.serve_forever(), analytics_task)
