@@ -28,5 +28,14 @@ You can run the decoy server listeners asynchronously in a Python shell or an en
 pytest tests/ -v
 ```
 
+## Current Version & Status
+
+The project is currently finalizing **v1.0** with all core modules (Decoy Server, CERF Analytics, and Threat Dashboard) fully functional and passing acceptance tests. 
+
+Additionally, several **v2.0 experimental features** have already been integrated:
+- **RL Regime Selection:** Reinforcement Learning-based dynamic perturbation scheduling.
+- **LLM-Driven Decoy FS:** Generative AI-powered stateful pseudo-filesystem responses.
+- **Spatio-Temporal Transformer:** Advanced deep learning model for threat actor fingerprinting.
+
 ## Architecture Details
 This repository contains a patent-verifiable prototype demonstrating that Active CERF Perturbation + LSH achieves ≥90% attribution accuracy on automated attack scripts, outperforming static TF-IDF text baselines.
