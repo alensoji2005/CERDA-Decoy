@@ -1047,18 +1047,20 @@ class CERDDashboard:
 ## 12. Current Implementation State & Roadmap
 
 ### 12.1 Completed Features & Modules (v1.0 & v2.0 Extensions)
-The architecture is implemented under `src/` and verified by 22 automated acceptance tests (`pytest`).
+The architecture is implemented under `src/` and verified by 26 automated acceptance tests (`pytest`).
 - **Module A (`src/decoy/`):** Async SSH/HTTP listeners, stateful pseudo-filesystem (incl. touch/rm/chmod), `DecoyConfig`, and thread-safe telemetry and `regime_schedule.csv` loggers.
 - **RL Perturbation Scheduler [Claim 5]:** Contextual Q-learning regime selection (`rl_scheduler.py`, tests RL1–RL4).
 - **LLM-Driven Decoy Filesystem [Claim 7]:** Gemini-backed file/command generation with honeytokens and a deterministic mock fallback (`llm_provider.py`).
 - **Module B (`src/analytics/`):** Sanitization, 13 timing + 6 AST + TF-IDF features, PCA (95% variance retained), 64-bit LSH, Hamming clustering. Attribution is ≥90% on synthetic data and robust to unequal session lengths (tests B3–B5).
 - **Spatio-Temporal Transformer [Claim 8]:** Default embedding. Per-command steps carry timing, AST and the perturbation regime. It is trained with supervised contrastive loss on random attacker archetypes (`scripts/train_transformer.py`). On held-out unseen archetypes it reaches ARI 1.0 vs ~0.49 for PCA (tests B6–B7, `src/analytics/benchmark.py`).
+- **TCP Socket Tarpit [Claim 6]:** `DecoyConfig.tarpit` shrinks `SO_RCVBUF` on the listening sockets so the advertised TCP window throttles attacker sends (test A4).
+- **Firewall integration:** `src/analytics/blocklist.py` exports validated per-actor IP blocklists as plain text and nftables files. They are never auto-applied.
+- **Packaging:** `Dockerfile` and `docker-compose.yml` (decoy + dashboard, shared volume, non-root).
 - **Module C (`src/dashboard/`):** Streamlit UI with date filter, topology graph, tactics scatter, regime timeline, and JSON export.
 
 ### 12.2 Remaining Roadmap
-1. **TCP Socket Tarpitting (Claim 6):** Network-layer ACK delay injection.
-2. **Real-world validation:** Collect live bot sessions to address Risk 2 (synthetic overfitting).
-3. **Firewall integration, Docker packaging, TSDB backend, distributed fleet.**
+1. **Real-world validation:** Collect live bot sessions to address Risk 2 (synthetic overfitting).
+2. **TSDB backend and distributed fleet:** Deferred until CSV storage or a single node becomes the bottleneck.
 
 ***
 

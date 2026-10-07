@@ -1,0 +1,27 @@
+services:
+  decoy:
+    build: .
+    command: ["python", "/app/decoy_server.py", "--tarpit"]
+    ports:
+      - "2222:2222"
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - cerda-data:/data
+    restart: unless-stopped
+
+  dashboard:
+    build: .
+    command: ["streamlit", "run", "/app/dashboard.py", "--server.address=0.0.0.0"]
+    ports:
+      - "127.0.0.1:8501:8501"   # dashboard is internal: bind to localhost only
+    volumes:
+      - cerda-data:/data
+    depends_on:
+      - decoy
+    restart: unless-stopped
+
+volumes:
+  cerda-data:

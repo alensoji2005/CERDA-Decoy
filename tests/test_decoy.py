@@ -78,3 +78,37 @@ def test_a3_host_isolation():
     out, new_path, weight = pfs.execute_command("rm -rf /")
     assert "command not found" in out or out == ""
     assert pfs.cwd == "/home/user"
+
+
+@pytest.mark.parametrize("tarpit", [False, True])
+def test_a4_tcp_tarpit(temp_env, tarpit):
+    """Test A4: Tarpit shrinks the receive buffer of accepted sockets; sessions still work."""
+    import asyncio
+    import socket
+    from src.decoy import DecoyConfig
+    temp_dir, telemetry_path = temp_env
+    config = DecoyConfig(ssh_port=0, http_port=0, telemetry_path=telemetry_path,
+                         regime_schedule_path=os.path.join(temp_dir, "sched.csv"), tarpit=tarpit)
+
+    async def scenario():
+        server = DecoyServer(host="127.0.0.1", config=config)
+        ssh, http = await server.start_listeners()
+        port = ssh.sockets[0].getsockname()[1]
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        await reader.readuntil(b"$ ")
+        writer.write(b"whoami\n")
+        await writer.drain()
+        reply = await asyncio.wait_for(reader.readuntil(b"$ "), timeout=5)
+        listen_buf = ssh.sockets[0].getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+        writer.close()
+        for s in (ssh, http):
+            s.close()
+        return reply, listen_buf
+
+    reply, listen_buf = asyncio.run(scenario())
+    assert b"root" in reply
+    default_buf = socket.socket().getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+    if tarpit:
+        assert listen_buf < default_buf
+    else:
+        assert listen_buf == default_buf

@@ -2,6 +2,7 @@ import asyncio
 import time
 import uuid
 import random
+import socket
 from dataclasses import dataclass, field
 from typing import List, Tuple
 from .telemetry import TelemetryEvent, TelemetryLogger, RegimeScheduleEvent, RegimeScheduleLogger
@@ -16,6 +17,11 @@ class DecoyConfig:
     telemetry_path: str = "telemetry.csv"
     regime_schedule_path: str = "regime_schedule.csv"
     use_rl: bool = False
+    # TCP tarpit (Patent Claim 6): shrink the kernel receive buffer on the listening
+    # sockets so accepted connections advertise a tiny TCP window, throttling the
+    # attacker's sends at the network layer. Effect is OS-dependent (strongest on Linux).
+    tarpit: bool = False
+    tarpit_rcvbuf_bytes: int = 256
     default_schedule: List[Tuple[int, Regime]] = field(default_factory=lambda: [
         (0, Regime.R0_BASELINE),
         (2, Regime.R1_SLOWDOWN),
@@ -104,7 +110,7 @@ class DecoyServer:
                 )
                 self.logger.log_event(event)
                 
-                # TCP Tarpitting Feature (Patent Claim 5)
+                # Application-layer byte drip during the R3 regime
                 full_output = out + f"$ "
                 if regime == Regime.R3_FS_LATENCY:
                     for char in full_output:
@@ -138,18 +144,34 @@ class DecoyServer:
     async def run_analytics_loop(self):
         while True:
             try:
-                engine = CERFEngine()
+                engine = CERFEngine(telemetry_path=self.config.telemetry_path)
                 await asyncio.to_thread(engine.run_pipeline)
             except Exception as e:
                 pass
             await asyncio.sleep(3)
             
-    async def start(self):
-        analytics_task = asyncio.create_task(self.run_analytics_loop())
+    def _listening_socket(self, port: int) -> socket.socket:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if self.config.tarpit:
+            # Must be set before listen(): the window scale is negotiated in the SYN/ACK
+            # and accepted sockets inherit the buffer size.
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, self.config.tarpit_rcvbuf_bytes)
+        sock.bind((self.host, port))
+        sock.listen(100)
+        sock.setblocking(False)
+        return sock
+
+    async def start_listeners(self) -> Tuple[asyncio.AbstractServer, asyncio.AbstractServer]:
         ssh_server = await asyncio.start_server(
-            lambda r, w: self.handle_connection(r, w, "SSH"), self.host, self.config.ssh_port
+            lambda r, w: self.handle_connection(r, w, "SSH"), sock=self._listening_socket(self.config.ssh_port)
         )
         http_server = await asyncio.start_server(
-            lambda r, w: self.handle_connection(r, w, "HTTP"), self.host, self.config.http_port
+            lambda r, w: self.handle_connection(r, w, "HTTP"), sock=self._listening_socket(self.config.http_port)
         )
+        return ssh_server, http_server
+
+    async def start(self):
+        analytics_task = asyncio.create_task(self.run_analytics_loop())
+        ssh_server, http_server = await self.start_listeners()
         await asyncio.gather(ssh_server.serve_forever(), http_server.serve_forever(), analytics_task)
