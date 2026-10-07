@@ -1,4 +1,5 @@
 import os
+import warnings
 import json
 import numpy as np
 import pandas as pd
@@ -12,23 +13,29 @@ from .transformer_model import TransformerEmbeddingModel
 from .clustering import CERFClusterer
 
 class CERFEngine:
-    # Hamming-distance clustering threshold, validated per embedding backend
-    CLUSTER_THRESHOLDS = {"pca": 6, "transformer": 2}
+    # Hamming-distance clustering threshold per backend. Transformer value calibrated
+    # (benchmark seed 7) between max within-actor (7) and min between-actor (14) distance.
+    CLUSTER_THRESHOLDS = {"pca": 6, "transformer": 10}
 
-    def __init__(self, telemetry_path: str = "telemetry.csv", output_dir: str = ".", embedding: str = "pca"):
-        """embedding: "pca" (timing + AST + TF-IDF -> PCA, the validated default) or
-        "transformer" (Spatio-Temporal Transformer over per-command sequences)."""
+    def __init__(self, telemetry_path: str = "telemetry.csv", output_dir: str = ".", embedding: str = "transformer"):
+        """embedding: "transformer" (trained Spatio-Temporal Transformer over per-command
+        sequences, default) or "pca" (timing + AST + TF-IDF -> PCA). Falls back to PCA
+        if the trained Transformer weights are missing (see scripts/train_transformer.py)."""
         if embedding not in ("pca", "transformer"):
             raise ValueError(f"Unknown embedding backend: {embedding}")
         self.telemetry_path = telemetry_path
         self.output_dir = output_dir
-        self.embedding = embedding
         models_dir = os.path.join(output_dir, "models")
+        if embedding == "transformer":
+            self.embedding_model = TransformerEmbeddingModel(models_dir=models_dir)
+            if not self.embedding_model.weights_loaded:
+                warnings.warn("Transformer weights not found; falling back to PCA embedding. "
+                              "Run `python -m scripts.train_transformer` to create them.")
+                embedding = "pca"
         if embedding == "pca":
             self.feature_extractor = FeatureExtractor()
             self.embedding_model = CERFEmbeddingModel(models_dir=models_dir)
-        else:
-            self.embedding_model = TransformerEmbeddingModel(models_dir=models_dir)
+        self.embedding = embedding
         self.clusterer = CERFClusterer()
         self.features = {}
         self.session_meta = {}

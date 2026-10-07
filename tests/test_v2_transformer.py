@@ -16,7 +16,7 @@ def test_transformer_shape_and_determinism():
     
     # Extract sequence features
     seq = model.extract_sequence_features(df)
-    assert seq.shape == (3, 7) # 3 commands, 7 features (1 dt + 6 AST)
+    assert seq.shape == (3, 11) # 3 commands, 1 dt + 6 AST + 4 regime one-hot
     
     # Run through transformer
     emb1 = model.fit_transform([seq])

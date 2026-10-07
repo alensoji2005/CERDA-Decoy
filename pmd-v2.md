@@ -1047,19 +1047,18 @@ class CERDDashboard:
 ## 12. Current Implementation State & Roadmap
 
 ### 12.1 Completed Features & Modules (v1.0 & v2.0 Extensions)
-The architecture is implemented under `src/` and verified by 20 automated acceptance tests (`pytest`).
+The architecture is implemented under `src/` and verified by 22 automated acceptance tests (`pytest`).
 - **Module A (`src/decoy/`):** Async SSH/HTTP listeners, stateful pseudo-filesystem (incl. touch/rm/chmod), `DecoyConfig`, and thread-safe telemetry and `regime_schedule.csv` loggers.
 - **RL Perturbation Scheduler [Claim 5]:** Contextual Q-learning regime selection (`rl_scheduler.py`, tests RL1–RL4).
 - **LLM-Driven Decoy Filesystem [Claim 7]:** Gemini-backed file/command generation with honeytokens and a deterministic mock fallback (`llm_provider.py`).
 - **Module B (`src/analytics/`):** Sanitization, 13 timing + 6 AST + TF-IDF features, PCA (95% variance retained), 64-bit LSH, Hamming clustering. Attribution is ≥90% on synthetic data and robust to unequal session lengths (tests B3–B5).
-- **Spatio-Temporal Transformer [Claim 8]:** Selectable embedding backend (`embedding="transformer"`). It is not yet trained, so PCA stays the default.
+- **Spatio-Temporal Transformer [Claim 8]:** Default embedding. Per-command steps carry timing, AST and the perturbation regime. It is trained with supervised contrastive loss on random attacker archetypes (`scripts/train_transformer.py`). On held-out unseen archetypes it reaches ARI 1.0 vs ~0.49 for PCA (tests B6–B7, `src/analytics/benchmark.py`).
 - **Module C (`src/dashboard/`):** Streamlit UI with date filter, topology graph, tactics scatter, regime timeline, and JSON export.
 
 ### 12.2 Remaining Roadmap
-1. **Transformer training:** Contrastive training script and saved weights; must match or beat PCA before becoming the default.
-2. **TCP Socket Tarpitting (Claim 6):** Network-layer ACK delay injection.
-3. **Real-world validation:** Collect live bot sessions to address Risk 2 (synthetic overfitting).
-4. **Firewall integration, Docker packaging, TSDB backend, distributed fleet.**
+1. **TCP Socket Tarpitting (Claim 6):** Network-layer ACK delay injection.
+2. **Real-world validation:** Collect live bot sessions to address Risk 2 (synthetic overfitting).
+3. **Firewall integration, Docker packaging, TSDB backend, distributed fleet.**
 
 ***
 

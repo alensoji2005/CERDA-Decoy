@@ -16,6 +16,7 @@ import pytest
 
 from src.analytics import CERFEngine
 from src.analytics.synthetic import generate_synthetic_data
+from src.analytics.benchmark import benchmark_scenarios, score_attribution
 
 @pytest.fixture
 def temp_env():
@@ -33,7 +34,7 @@ def test_b1_feature_extraction(temp_env):
     df = generate_synthetic_data(num_sessions=10, script_type="A")
     df.to_csv(telemetry_path, index=False)
     
-    engine = CERFEngine(telemetry_path, temp_dir)
+    engine = CERFEngine(telemetry_path, temp_dir, embedding="pca")
     loaded_df = engine.load_telemetry()
     features = engine.extract_features(loaded_df)
     
@@ -45,8 +46,8 @@ def test_b1_feature_extraction(temp_env):
 
     seq_engine = CERFEngine(telemetry_path, temp_dir, embedding="transformer")
     seq_features = seq_engine.extract_features(seq_engine.load_telemetry())
-    # Sequence length varies, but per-step dim is 7 (1 timing + 6 AST)
-    assert list(seq_features.values())[0].shape[1] == 7
+    # Sequence length varies, but per-step dim is 11 (1 timing + 6 AST + 4 regime)
+    assert list(seq_features.values())[0].shape[1] == 11
     
 
 def test_b2_cerf_determinism(temp_env):
@@ -143,3 +144,27 @@ def test_b5_attribution_unequal_session_lengths(temp_env):
     assert len(ta_a) == 1, f"Script A fragmented into {len(ta_a)} clusters"
     assert len(ta_b) == 1, f"Script B fragmented into {len(ta_b)} clusters"
     assert ta_a[0] != ta_b[0]
+
+
+def test_b6_transformer_generalises_to_unseen_archetypes():
+    """
+    Test B6: The trained Transformer (default embedding) must recover every held-out
+    actor exactly, including archetypes never seen in training, and do at least as
+    well as the PCA baseline in every scenario.
+    """
+    for name, df in benchmark_scenarios(seed=1000).items():
+        df = df.reset_index(drop=True)
+        transformer = score_attribution(df, "transformer")
+        pca = score_attribution(df, "pca")
+        assert transformer["ari"] == 1.0, f"{name}: transformer {transformer}"
+        assert transformer["ari"] >= pca["ari"], f"{name}: transformer {transformer} < pca {pca}"
+
+
+def test_b7_missing_weights_falls_back_to_pca(temp_env, monkeypatch):
+    """Test B7: Without trained weights the engine warns and uses the PCA backend."""
+    temp_dir, telemetry_path = temp_env
+    generate_synthetic_data(num_sessions=4).to_csv(telemetry_path, index=False)
+    monkeypatch.setattr("src.analytics.transformer_model.DEFAULT_WEIGHTS", os.path.join(temp_dir, "none.pt"))
+    with pytest.warns(UserWarning, match="falling back to PCA"):
+        engine = CERFEngine(telemetry_path, temp_dir)
+    assert engine.embedding == "pca"

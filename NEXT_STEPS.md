@@ -1,6 +1,6 @@
 # CERDA — Next Steps Plan (2026-10-07)
 
-> **Status:** Phase 1 done (plus a fix for fingerprinting sessions of unequal length). Phase 3 done: the root wrappers are kept as entry points, demo scripts moved to `scripts/`, old docs moved to `docs/archive/`, and dependencies pinned. A separate CLI was skipped because the wrappers already cover it. Next up: Phase 2.
+> **Status:** Phase 1 done (plus a fix for fingerprinting sessions of unequal length). Phase 3 done: the root wrappers are kept as entry points, demo scripts moved to `scripts/`, old docs moved to `docs/archive/`, and dependencies pinned. A separate CLI was skipped because the wrappers already cover it. Phase 2 done: the Transformer is trained and is now the default. On unseen archetypes it scores ARI 1.0 vs ~0.49 for PCA. Next up: Phase 5 data collection and Phase 4 items.
 
 ## Where things stand
 
