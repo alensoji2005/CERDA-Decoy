@@ -23,7 +23,7 @@ def temp_env():
     yield temp_dir, telemetry_path
     shutil.rmtree(temp_dir, ignore_errors=True)
 
-def generate_synthetic_data(num_sessions=10, script_type="A"):
+def generate_synthetic_data(num_sessions=10, script_type="A", num_cmds=50):
     """
     Generates synthetic session telemetry.
     Script A (Fast Botnet): Very small delta_t_ns, highly impatient.
@@ -35,7 +35,6 @@ def generate_synthetic_data(num_sessions=10, script_type="A"):
         session_id = f"session_{script_type}_{i:03d}"
         source_ip = f"10.0.{1 if script_type == 'A' else 2}.{i}"
         
-        num_cmds = 30 if script_type == "A" else 50
         for cmd_idx in range(num_cmds):
             regime = "baseline"
             if cmd_idx >= 37: regime = "fs_latency"
@@ -87,9 +86,14 @@ def test_b1_feature_extraction(temp_env):
     
     assert len(features) == 10
     
-    first_seq = list(features.values())[0]
-    # Sequence length varies, but feature dim is 7 (1 timing + 6 AST)
-    assert first_seq.shape[1] == 7
+    first_vec = list(features.values())[0]
+    # 13 timing + 6 AST + 10 TF-IDF
+    assert first_vec.shape == (29,)
+
+    seq_engine = CERFEngine(telemetry_path, temp_dir, embedding="transformer")
+    seq_features = seq_engine.extract_features(seq_engine.load_telemetry())
+    # Sequence length varies, but per-step dim is 7 (1 timing + 6 AST)
+    assert list(seq_features.values())[0].shape[1] == 7
     
 
 def test_b2_cerf_determinism(temp_env):
@@ -102,9 +106,9 @@ def test_b2_cerf_determinism(temp_env):
     engine = CERFEngine(telemetry_path, temp_dir)
     loaded_df = engine.load_telemetry()
     engine.extract_features(loaded_df)
-    engine.train_embedding_model(engine.feature_sequences)
+    engine.train_embedding_model(engine.features)
     
-    session_id = list(engine.feature_sequences.keys())[0]
+    session_id = list(engine.features.keys())[0]
     
     cerf_1 = engine.compute_cerf_for_session(session_id)
     cerf_2 = engine.compute_cerf_for_session(session_id)
@@ -114,7 +118,6 @@ def test_b2_cerf_determinism(temp_env):
     assert len(cerf_1) == 16  # 64 bit hex
 
 
-@pytest.mark.skip(reason="Untrained Transformer requires pre-trained weights for synthetic data clustering")
 def test_b3_attribution_accuracy(temp_env):
     """Test B3: Attribution accuracy for synthetic sessions (Script A vs B)."""
     temp_dir, telemetry_path = temp_env
@@ -137,7 +140,6 @@ def test_b3_attribution_accuracy(temp_env):
     assert ta_a[0] != ta_b[0], "Script A and B merged into the same cluster"
 
 
-@pytest.mark.skip(reason="Untrained Transformer requires pre-trained weights for synthetic data clustering")
 def test_b4_cerf_vs_baseline(temp_env):
     """
     Test B4: CERF vs Baseline TF-IDF
@@ -166,3 +168,25 @@ def test_b4_cerf_vs_baseline(temp_env):
     
     # The benchmark requires >= 90% accuracy for CERF
     assert overall_accuracy >= 0.90, f"CERF accuracy {overall_accuracy} failed to meet 90% threshold"
+
+
+def test_b5_attribution_unequal_session_lengths(temp_env):
+    """
+    Test B5: Fingerprints must not depend on session length. Script A sessions
+    disconnect after 30 commands (never reaching fs_latency, only 5 jitter samples)
+    while Script B runs 50; each script must still map to exactly one actor.
+    """
+    temp_dir, telemetry_path = temp_env
+    np.random.seed(0)
+
+    df_a = generate_synthetic_data(num_sessions=50, script_type="A", num_cmds=30)
+    df_b = generate_synthetic_data(num_sessions=50, script_type="B")
+    pd.concat([df_a, df_b]).reset_index(drop=True).to_csv(telemetry_path, index=False)
+
+    sessions_df = CERFEngine(telemetry_path, temp_dir).run_pipeline()
+
+    ta_a = sessions_df[sessions_df["session_id"].str.contains("session_A")]["threat_actor_id"].unique()
+    ta_b = sessions_df[sessions_df["session_id"].str.contains("session_B")]["threat_actor_id"].unique()
+    assert len(ta_a) == 1, f"Script A fragmented into {len(ta_a)} clusters"
+    assert len(ta_b) == 1, f"Script B fragmented into {len(ta_b)} clusters"
+    assert ta_a[0] != ta_b[0]

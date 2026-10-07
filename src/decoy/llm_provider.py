@@ -8,6 +8,8 @@ except ImportError:
 
 load_dotenv()
 
+LLM_MODEL = os.getenv("CERDA_LLM_MODEL", "gemini-2.5-flash")
+
 class LLMProvider:
     def __init__(self, use_mock: bool = False):
         self.use_mock = use_mock
@@ -53,12 +55,12 @@ If the file is highly sensitive (like .aws/credentials or database config), gene
 Make the output highly plausible and contextually aligned with their previous commands if relevant."""
         try:
             response = self.client.models.generate_content(
-                model='gemini-2.7-flash',
+                model=LLM_MODEL,
                 contents=prompt,
             )
             return response.text
         except Exception as e:
-            print(f"Gemini API Error: {e}")
+            print(f"Gemini API error ({LLM_MODEL}): {e}; falling back to mock output")
             return self._mock_generate_file(path, command_history)
 
     def _gemini_generate_command(self, command: str, command_history: list) -> str:
@@ -73,12 +75,12 @@ Do NOT include any markdown formatting, explanations, or backticks. Only the raw
 If the command doesn't exist, output standard bash command not found error."""
         try:
             response = self.client.models.generate_content(
-                model='gemini-2.7-flash',
+                model=LLM_MODEL,
                 contents=prompt,
             )
             return response.text
         except Exception as e:
-            print(f"Gemini API Error: {e}")
+            print(f"Gemini API error ({LLM_MODEL}): {e}; falling back to mock output")
             return self._mock_generate_command(command, command_history)
             
     def _mock_generate_file(self, path: str, command_history: list) -> str:
@@ -87,7 +89,7 @@ If the command doesn't exist, output standard bash command not found error."""
         # Honeytoken Generation
         if ".aws/credentials" in path_lower:
             return "[default]\naws_access_key_id = AKIAIOSFODNN7EXAMPLE\naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n"
-        elif "database.yml" in path_lower or "config" in path_lower:
+        elif path_lower.endswith(("database.yml", "wp-config.php", "/.env")):
             return "production:\n  adapter: postgresql\n  database: prod_db\n  username: admin\n  password: supersecretpassword123\n  host: 127.0.0.1\n"
         elif "shadow" in path_lower:
             return "root:$6$xyz$abc...:18000:0:99999:7:::\nadmin:$6$qwe$rty...:18000:0:99999:7:::\n"

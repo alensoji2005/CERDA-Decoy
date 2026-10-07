@@ -5,6 +5,11 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from typing import Tuple
 
+# Keep only the principal components carrying this share of variance. Trailing
+# components hold within-actor timing noise (e.g. few jitter samples in short
+# sessions) that would otherwise flip LSH bits and fragment threat actors.
+PCA_VARIANCE_RETAINED = 0.95
+
 class CERFEmbeddingModel:
     def __init__(self, models_dir: str = "models", seed: int = 42):
         self.models_dir = models_dir
@@ -23,10 +28,14 @@ class CERFEmbeddingModel:
     def fit_transform(self, X: np.ndarray) -> np.ndarray:
         X_scaled = self.scaler.fit_transform(X)
         n_samples, n_features = X_scaled.shape
-        n_comp = min(32, n_samples, n_features)
+        max_comp = min(32, n_samples, n_features)
         
-        self.pca = PCA(n_components=n_comp, random_state=self.seed)
+        self.pca = PCA(n_components=max_comp, random_state=self.seed)
         X_pca = self.pca.fit_transform(X_scaled)
+        if n_samples > 1:
+            cum = np.cumsum(self.pca.explained_variance_ratio_)
+            keep = int(np.searchsorted(cum, PCA_VARIANCE_RETAINED) + 1)
+            X_pca = X_pca[:, :min(keep, max_comp)]
         
         if X_pca.shape[1] < 32:
             pad_width = 32 - X_pca.shape[1]
