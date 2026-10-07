@@ -15,18 +15,28 @@ pip install -r requirements.txt
 
 ## Usage
 
-**1. Run the Streamlit Dashboard:**
+Run everything from the repo root.
+
 ```bash
-streamlit run dashboard.py
+python decoy_server.py                  # SSH-like :2222, HTTP-like :8080 -> telemetry.csv, regime_schedule.csv
+python cerf_engine.py [telemetry.csv]   # fingerprint + cluster -> sessions.csv, cerf_clusters.json
+streamlit run dashboard.py              # threat intel dashboard
+pytest tests/ -v                        # acceptance tests (A1-A3, B1-B5, C1-C3, RL, v2)
 ```
 
-**2. Run the Decoy Server (Background):**
-You can run the decoy server listeners asynchronously in a Python shell or an entry script.
+Demo helpers (in `scripts/`):
 
-**3. Run the Benchmark & Test Suite:**
 ```bash
-pytest tests/ -v
+python -m scripts.generate_demo_data    # synthetic telemetry + CERF run, no server needed
+python -m scripts.attacker_client 2222  # interactive attacker shell against the decoy
+python -m scripts.bot_attacker          # automated bot session against the decoy
 ```
+
+Configuration (`.env`):
+- `GEMINI_API_KEY`: enables the live LLM for decoy file and command output (otherwise deterministic mock output is used).
+- `CERDA_LLM_MODEL`: Gemini model id (default `gemini-2.5-flash`).
+
+The CERF engine has two embedding backends: `CERFEngine(embedding="pca")` (the default, validated at ≥90% attribution) and `embedding="transformer"` (experimental, untrained).
 
 ## Current Version & Status
 

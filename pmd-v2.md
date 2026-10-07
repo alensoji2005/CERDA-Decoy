@@ -1047,18 +1047,19 @@ class CERDDashboard:
 ## 12. Current Implementation State & Roadmap
 
 ### 12.1 Completed Features & Modules (v1.0 & v2.0 Extensions)
-The architecture is fully implemented, packaged under `src/`, and verified with 14 automated unit/acceptance tests (`pytest`):
-- **Module A (`src/decoy/`):** Async non-blocking SSH/HTTP listeners with a stateful pseudo-filesystem and telemetry loggers (`server.py`, `pseudo_fs.py`, `telemetry.py`).
-- **Reinforcement Learning Perturbation Scheduler [Patent Claim 5 Implemented]:** Contextual Q-learning agent (`src/decoy/rl_scheduler.py`) that dynamically selects perturbation regimes ($R_0 \dots R_3$) to maximize information gain while avoiding session drops. Verified with `tests/test_rl_scheduler.py` (Tests RL1–RL4).
-- **Module B (`src/analytics/`):** AST sanitization, 13 log-scaled timing feature extractors, PCA dimensionality reduction, and 64-bit LSH deterministic fingerprint generator (`cerf_engine.py`, `features.py`, `embedding.py`, `clustering.py`). Proven $\ge 90\%$ accuracy benchmark.
-- **Module C (`src/dashboard/`):** Streamlit UI with Retro CLI vs Academic theme toggle, NetworkX topology graph, 2D Tactics scatter plot, Regime timeline, and STIX/JSON threat intel exporter (`src/dashboard/app.py`, `visualizations.py`).
+The architecture is implemented under `src/` and verified by 20 automated acceptance tests (`pytest`).
+- **Module A (`src/decoy/`):** Async SSH/HTTP listeners, stateful pseudo-filesystem (incl. touch/rm/chmod), `DecoyConfig`, and thread-safe telemetry and `regime_schedule.csv` loggers.
+- **RL Perturbation Scheduler [Claim 5]:** Contextual Q-learning regime selection (`rl_scheduler.py`, tests RL1–RL4).
+- **LLM-Driven Decoy Filesystem [Claim 7]:** Gemini-backed file/command generation with honeytokens and a deterministic mock fallback (`llm_provider.py`).
+- **Module B (`src/analytics/`):** Sanitization, 13 timing + 6 AST + TF-IDF features, PCA (95% variance retained), 64-bit LSH, Hamming clustering. Attribution is ≥90% on synthetic data and robust to unequal session lengths (tests B3–B5).
+- **Spatio-Temporal Transformer [Claim 8]:** Selectable embedding backend (`embedding="transformer"`). It is not yet trained, so PCA stays the default.
+- **Module C (`src/dashboard/`):** Streamlit UI with date filter, topology graph, tactics scatter, regime timeline, and JSON export.
 
-### 12.2 Remaining Architectural Roadmap (v2.0 Ideas)
-1. **TCP Socket Tarpitting (Patent Claim 6):** Network-layer ACK delay injection for OS-level stack fingerprinting.
-2. **LLM-Driven Decoy Filesystem (Patent Claim 7):** Generative context-aware honeypot response generation.
-3. **Sequence-to-Vector Transformer Model (Patent Claim 8):** Time-series temporal fingerprinting for inter-command delay sequences.
-4. **Time-Series Database Backend:** Migration to ClickHouse/TimescaleDB for high-throughput enterprise scale.
-
+### 12.2 Remaining Roadmap
+1. **Transformer training:** Contrastive training script and saved weights; must match or beat PCA before becoming the default.
+2. **TCP Socket Tarpitting (Claim 6):** Network-layer ACK delay injection.
+3. **Real-world validation:** Collect live bot sessions to address Risk 2 (synthetic overfitting).
+4. **Firewall integration, Docker packaging, TSDB backend, distributed fleet.**
 
 ***
 

@@ -1,5 +1,7 @@
 # CERDA — Next Steps Plan (2026-10-07)
 
+> **Status:** Phase 1 done (plus a fix for fingerprinting sessions of unequal length). Phase 3 done: the root wrappers are kept as entry points, demo scripts moved to `scripts/`, old docs moved to `docs/archive/`, and dependencies pinned. A separate CLI was skipped because the wrappers already cover it. Next up: Phase 2.
+
 ## Where things stand
 
 - **Module A (decoy):** works. Async SSH (2222) and HTTP (8080) listeners, a pseudo-FS (cd/ls/cat/pwd/wget/curl/touch/rm/chmod), R0–R3 perturbation, `DecoyConfig`, thread-safe `TelemetryLogger` and `RegimeScheduleLogger` (writes `regime_schedule.csv`), and an optional RL scheduler (`use_rl`).

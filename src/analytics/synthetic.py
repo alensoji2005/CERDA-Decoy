@@ -1,14 +1,21 @@
-import pandas as pd
+"""Synthetic attacker telemetry for benchmarks, tests and demos."""
 import numpy as np
-from src.analytics import CERFEngine
+import pandas as pd
 
-def generate_synthetic_data(num_sessions=10, script_type="A"):
+
+def generate_synthetic_data(num_sessions=10, script_type="A", num_cmds=50):
+    """
+    Generates synthetic session telemetry.
+    Script A (Fast Botnet): Very small delta_t_ns, highly impatient.
+    Script B (Scanner): Medium, constant delta_t_ns, ignores delays.
+    """
     rows = []
+    
     for i in range(num_sessions):
         session_id = f"session_{script_type}_{i:03d}"
         source_ip = f"10.0.{1 if script_type == 'A' else 2}.{i}"
         
-        for cmd_idx in range(50):
+        for cmd_idx in range(num_cmds):
             regime = "baseline"
             if cmd_idx >= 37: regime = "fs_latency"
             elif cmd_idx >= 25: regime = "jitter"
@@ -17,12 +24,14 @@ def generate_synthetic_data(num_sessions=10, script_type="A"):
             dt = 0
             if cmd_idx > 0:
                 if script_type == "A":
-                    if regime == "baseline": dt = 1_000_000
-                    elif regime == "slowdown": dt = 100_000_000
+                    # Impatient - reacts heavily to slowdowns
+                    if regime == "baseline": dt = 1_000_000  # 1ms
+                    elif regime == "slowdown": dt = 100_000_000  # 100ms
                     elif regime == "jitter": dt = np.random.randint(50, 200) * 1_000_000
                     elif regime == "fs_latency": dt = 200_000_000
                 else:
-                    dt = 500_000_000
+                    # Script B - Constant slow scan, doesn't care
+                    dt = 500_000_000  # 500ms fixed
                     
             cmd = "ls -la" if cmd_idx % 2 == 0 else "cat /etc/passwd"
             if script_type == "B":
@@ -42,16 +51,3 @@ def generate_synthetic_data(num_sessions=10, script_type="A"):
                 "response_sent": True
             })
     return pd.DataFrame(rows)
-
-print("Generating demo telemetry data...")
-df_a = generate_synthetic_data(num_sessions=20, script_type="A")
-df_b = generate_synthetic_data(num_sessions=15, script_type="B")
-
-combined_df = pd.concat([df_a, df_b]).reset_index(drop=True)
-combined_df.to_csv("telemetry.csv", index=False)
-
-print("Running CERF Analytics Engine...")
-engine = CERFEngine(telemetry_path="telemetry.csv", output_dir=".")
-engine.run_pipeline()
-
-print("Demo data generated! Check your dashboard.")
