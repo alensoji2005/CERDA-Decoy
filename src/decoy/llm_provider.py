@@ -112,6 +112,6 @@ If the command doesn't exist, output standard bash command not found error."""
         elif "ps" in cmd_lower:
             return "  PID TTY          TIME CMD\n    1 ?        00:00:02 systemd\n  452 ?        00:00:00 sshd\n 1024 pts/0    00:00:00 bash\n"
         elif "uname" in cmd_lower:
-            return "Linux cerda-decoy 5.15.0-88-generic #98-Ubuntu SMP Mon Oct 2 15:18:56 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux\n"
+            return "Linux srv-prod-01 5.15.0-105-generic #115-Ubuntu SMP Mon Apr 15 09:52:04 UTC 2024 x86_64 x86_64 x86_64 GNU/Linux\n"
             
         return f"bash: {command.split()[0] if command else ''}: command not found\n"

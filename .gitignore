@@ -6,3 +6,4 @@ models/
 *.json
 !requirements.txt
 .env
+ssh_host_*_key

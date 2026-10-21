@@ -9,5 +9,7 @@ streamlit-autorefresh~=1.0
 plotly~=6.9
 networkx~=3.4
 google-genai~=2.20
+asyncssh~=2.24
+paramiko~=5.1
 python-dotenv~=1.2
 pytest~=9.1

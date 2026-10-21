@@ -18,11 +18,11 @@ pip install -r requirements.txt
 Run everything from the repo root.
 
 ```bash
-python decoy_server.py [--tarpit] [--rl] # SSH-like :2222, HTTP-like :8080 -> telemetry.csv, regime_schedule.csv
+python decoy_server.py [--tarpit] [--rl] # real SSH :2222, raw text shell :8080 -> telemetry.csv, auth.csv, regime_schedule.csv
 python cerf_engine.py [telemetry.csv]   # fingerprint + cluster -> sessions.csv, cerf_clusters.json
 streamlit run dashboard.py              # threat intel dashboard
 python -m src.analytics.blocklist       # sessions.csv -> cerda_blocklist.txt / .nft (never auto-applied)
-pytest tests/ -v                        # acceptance tests (A1-A4, B1-B7, C1-C3, RL, blocklist, v2)
+pytest tests/ -v                        # acceptance tests (A1-A6, B1-B7, C1-C3, RL, blocklist, v2)
 ```
 
 Docker (decoy with tarpit + dashboard on `127.0.0.1:8501`, shared `/data` volume):
@@ -32,6 +32,7 @@ docker compose up --build
 ```
 
 Notes:
+- The SSH decoy is a real SSH-2 server (asyncssh) with an OpenSSH/Ubuntu banner. It logs every login attempt to `auth.csv`, accepts common passwords (or any password on the 3rd attempt from an IP), and supports both interactive shells and `ssh host cmd`. Its host key persists in `ssh_host_ed25519_key`.
 - `--tarpit` shrinks the TCP receive window on the decoy's listening sockets so attacker sends are throttled at the network layer. The effect is strongest on Linux.
 - The blocklist exporter validates every IP. Review `cerda_blocklist.nft`, then apply it yourself with `sudo nft -f cerda_blocklist.nft`.
 
@@ -39,8 +40,8 @@ Demo helpers (in `scripts/`):
 
 ```bash
 python -m scripts.generate_demo_data    # synthetic telemetry + CERF run, no server needed
-python -m scripts.attacker_client 2222  # interactive attacker shell against the decoy
-python -m scripts.bot_attacker          # automated bot session against the decoy
+ssh -p 2222 root@127.0.0.1              # be the attacker (password: 123456, or anything on the 3rd try)
+python -m scripts.bot_attacker          # automated SSH bot: brute-force, login, recon
 python -m scripts.train_transformer     # retrain the Transformer embedding (~9 min CPU)
 ```
 

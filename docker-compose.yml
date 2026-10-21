@@ -3,8 +3,8 @@ services:
     build: .
     command: ["python", "/app/decoy_server.py", "--tarpit"]
     ports:
-      - "2222:2222"
-      - "8080:8080"
+      - "22:2222"        # real SSH decoy on the standard port (move your admin sshd first!)
+      - "127.0.0.1:8080:8080"  # legacy text shell; not internet-facing
     env_file:
       - path: .env
         required: false

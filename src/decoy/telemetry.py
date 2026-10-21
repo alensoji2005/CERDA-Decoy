@@ -66,3 +66,31 @@ class RegimeScheduleLogger:
         df = pd.DataFrame([event.__dict__])
         with self._lock:
             df.to_csv(self.filepath, mode='a', header=False, index=False)
+
+
+@dataclass
+class AuthEvent:
+    session_id: str
+    timestamp_ns: int
+    source_ip: str
+    protocol: str
+    username: str
+    password: str
+    client_version: str
+    accepted: bool
+
+
+class AuthLogger:
+    """Appends every login attempt (credential intelligence) to a CSV."""
+    COLUMNS = list(AuthEvent.__dataclass_fields__)
+
+    def __init__(self, filepath: str = "auth.csv"):
+        self.filepath = filepath
+        self._lock = threading.Lock()
+        if not os.path.exists(self.filepath):
+            pd.DataFrame(columns=self.COLUMNS).to_csv(self.filepath, index=False)
+
+    def log_event(self, event: AuthEvent):
+        df = pd.DataFrame([event.__dict__])
+        with self._lock:
+            df.to_csv(self.filepath, mode='a', header=False, index=False)
