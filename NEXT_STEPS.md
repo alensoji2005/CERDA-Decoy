@@ -71,7 +71,7 @@ Phase 1 → Phase 3 (cheap, unblocks clarity) → Phase 2 → Phase 5 data colle
 ## Productisation track (2026-10-22)
 
 - [x] **Stage 1.1 Real SSH decoy:** asyncssh, credential logging, interactive and exec modes, shared session loop (tests A5/A6).
-- [ ] Stage 1.2 Real HTTP decoy (fake admin, WordPress and `.env` pages with per-request perturbation).
+- [x] Stage 1.2 Real HTTP decoy: aiohttp, Apache/WordPress/phpMyAdmin lookalike, honeytokens, form credential logging, per-IP sessions (test A7).
 - [ ] Stage 1.3 Banner and realism audit (Shodan, honeypot detectors).
 - [ ] Stage 2: VPS deploy on port 22; collect for 2–4 weeks.
 - [ ] Stage 3: Weak labels (payload hash, download URL, credential list), perturbation on/off A/B test, retrain.

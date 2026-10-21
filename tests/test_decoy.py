@@ -90,52 +90,45 @@ def test_a3_host_isolation():
 
 @pytest.mark.parametrize("tarpit", [False, True])
 def test_a4_tcp_tarpit(temp_env, tarpit):
-    """Test A4: Tarpit shrinks the receive buffer of accepted sockets; sessions still work."""
+    """Test A4: Tarpit shrinks the receive buffer of both listeners; sessions still work."""
+    import socket
+    import urllib.request
+    temp_dir, telemetry_path = temp_env
+
+    def client(ports):
+        with urllib.request.urlopen(f"http://127.0.0.1:{ports['http']}/") as r:
+            return r.read()
+
+    body, bufs = _run_with_decoy(temp_dir, telemetry_path, client, tarpit=tarpit, return_bufs=True)
+    assert b"Apache2 Ubuntu Default Page" in body
+    default_buf = socket.socket().getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+    for buf in bufs:
+        assert (buf < default_buf) if tarpit else (buf == default_buf)
+
+
+def _run_with_decoy(temp_dir, telemetry_path, client_fn, return_bufs=False, **config_kw):
+    """Start SSH + HTTP decoys, run blocking client_fn({'ssh': port, 'http': port}) in a thread."""
     import asyncio
     import socket
-    from src.decoy import DecoyConfig
-    temp_dir, telemetry_path = temp_env
-    config = decoy_config(temp_dir, telemetry_path, tarpit=tarpit)
+    config = decoy_config(temp_dir, telemetry_path, **config_kw)
 
     async def scenario():
         server = DecoyServer(host="127.0.0.1", config=config)
         ssh, http = await server.start_listeners()
-        port = http.sockets[0].getsockname()[1]
-        reader, writer = await asyncio.open_connection("127.0.0.1", port)
-        await reader.readuntil(b"$ ")
-        writer.write(b"whoami\n")
-        await writer.drain()
-        reply = await asyncio.wait_for(reader.readuntil(b"$ "), timeout=5)
-        listen_buf = http.sockets[0].getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
-        writer.close()
-        ssh.close()
-        http.close()
-        return reply, listen_buf
-
-    reply, listen_buf = asyncio.run(scenario())
-    assert b"root" in reply
-    default_buf = socket.socket().getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
-    if tarpit:
-        assert listen_buf < default_buf
-    else:
-        assert listen_buf == default_buf
+        socks = [ssh.sockets[0], http.sockets[0]]
+        ports = {"ssh": socks[0].getsockname()[1], "http": socks[1].getsockname()[1]}
+        try:
+            result = await asyncio.wait_for(asyncio.to_thread(client_fn, ports), timeout=60)
+            bufs = [s.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF) for s in socks]
+            return (result, bufs) if return_bufs else result
+        finally:
+            ssh.close()
+            await http.close()
+    return asyncio.run(scenario())
 
 
 def _run_with_ssh_decoy(temp_dir, telemetry_path, client_fn):
-    """Start the real SSH decoy, run blocking client_fn(port) in a thread, return its result."""
-    import asyncio
-    config = decoy_config(temp_dir, telemetry_path)
-
-    async def scenario():
-        server = DecoyServer(host="127.0.0.1", config=config)
-        ssh, http = await server.start_listeners()
-        port = ssh.sockets[0].getsockname()[1]
-        try:
-            return await asyncio.wait_for(asyncio.to_thread(client_fn, port), timeout=60)
-        finally:
-            ssh.close()
-            http.close()
-    return asyncio.run(scenario())
+    return _run_with_decoy(temp_dir, telemetry_path, lambda ports: client_fn(ports["ssh"]))
 
 
 def test_a5_ssh_bruteforce_then_interactive_shell(temp_env):
@@ -215,3 +208,44 @@ def test_a6_ssh_exec_command(temp_env):
     assert "Linux" in out and "root" in out
     assert "srv-prod-01:" not in out  # no prompts in exec mode
     assert len(pd.read_csv(telemetry_path)) == 2
+
+
+def test_a7_http_decoy(temp_env):
+    """Test A7: HTTP decoy serves Apache-looking pages and honeytokens, logs form creds,
+    and records each request as a perturbed command in one per-IP session."""
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    temp_dir, telemetry_path = temp_env
+
+    def scanner(ports):
+        base = f"http://127.0.0.1:{ports['http']}"
+        results = {}
+        for path in ["/", "/.env", "/wp-admin/", "/nope.php"]:
+            try:
+                with urllib.request.urlopen(base + path) as r:
+                    results[path] = (r.status, r.headers["Server"], r.read().decode())
+            except urllib.error.HTTPError as e:
+                results[path] = (e.code, e.headers["Server"], e.read().decode())
+        data = urllib.parse.urlencode({"log": "admin", "pwd": "<script>x</script>"}).encode()
+        with urllib.request.urlopen(base + "/wp-login.php", data=data) as r:
+            results["login"] = (r.status, r.headers["Server"], r.read().decode())
+        return results
+
+    r = _run_with_decoy(temp_dir, telemetry_path, scanner)
+
+    assert all(server == "Apache/2.4.52 (Ubuntu)" for _, server, _ in r.values())
+    assert r["/"][0] == 200 and "It works" in r["/"][2]
+    assert r["/.env"][0] == 200 and "password" in r["/.env"][2]
+    assert r["/wp-admin/"][0] == 200 and "loginform" in r["/wp-admin/"][2]  # followed the 302
+    assert r["/nope.php"][0] == 404
+    assert "is incorrect" in r["login"][2] and "<script>" not in r["login"][2]  # reflected input escaped
+
+    auth = pd.read_csv(os.path.join(temp_dir, "auth.csv"))
+    assert list(auth[["protocol", "username", "password"]].iloc[0]) == ["HTTP", "admin", "<script>x</script>"]
+
+    telemetry = pd.read_csv(telemetry_path)
+    assert telemetry["session_id"].nunique() == 1
+    assert list(telemetry["command_raw"]) == ["GET /", "GET /.env", "GET /wp-admin/", "GET /wp-login.php",
+                                              "GET /nope.php", "POST /wp-login.php"]
+    assert list(telemetry["command_index"]) == list(range(6))

@@ -4,7 +4,7 @@ services:
     command: ["python", "/app/decoy_server.py", "--tarpit"]
     ports:
       - "22:2222"        # real SSH decoy on the standard port (move your admin sshd first!)
-      - "127.0.0.1:8080:8080"  # legacy text shell; not internet-facing
+      - "80:8080"        # HTTP decoy (Apache/WordPress lookalike)
     env_file:
       - path: .env
         required: false

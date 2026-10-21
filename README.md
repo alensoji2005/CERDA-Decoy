@@ -18,11 +18,11 @@ pip install -r requirements.txt
 Run everything from the repo root.
 
 ```bash
-python decoy_server.py [--tarpit] [--rl] # real SSH :2222, raw text shell :8080 -> telemetry.csv, auth.csv, regime_schedule.csv
+python decoy_server.py [--tarpit] [--rl] # SSH decoy :2222, HTTP decoy :8080 -> telemetry.csv, auth.csv, regime_schedule.csv
 python cerf_engine.py [telemetry.csv]   # fingerprint + cluster -> sessions.csv, cerf_clusters.json
 streamlit run dashboard.py              # threat intel dashboard
 python -m src.analytics.blocklist       # sessions.csv -> cerda_blocklist.txt / .nft (never auto-applied)
-pytest tests/ -v                        # acceptance tests (A1-A6, B1-B7, C1-C3, RL, blocklist, v2)
+pytest tests/ -v                        # acceptance tests (A1-A7, B1-B7, C1-C3, RL, blocklist, v2)
 ```
 
 Docker (decoy with tarpit + dashboard on `127.0.0.1:8501`, shared `/data` volume):
@@ -33,6 +33,7 @@ docker compose up --build
 
 Notes:
 - The SSH decoy is a real SSH-2 server (asyncssh) with an OpenSSH/Ubuntu banner. It logs every login attempt to `auth.csv`, accepts common passwords (or any password on the 3rd attempt from an IP), and supports both interactive shells and `ssh host cmd`. Its host key persists in `ssh_host_ed25519_key`.
+- The HTTP decoy looks like Ubuntu Apache with a neglected WordPress/phpMyAdmin. It serves honeytoken files (`/.env`, `/.git/config`, ...) and logs login form posts to `auth.csv`. Each source IP is one session, and every request is a perturbed "command".
 - `--tarpit` shrinks the TCP receive window on the decoy's listening sockets so attacker sends are throttled at the network layer. The effect is strongest on Linux.
 - The blocklist exporter validates every IP. Review `cerda_blocklist.nft`, then apply it yourself with `sudo nft -f cerda_blocklist.nft`.
 
