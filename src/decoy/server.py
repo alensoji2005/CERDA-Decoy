@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from typing import AsyncIterator, Awaitable, Callable, List, Optional, Tuple
 from .telemetry import TelemetryEvent, TelemetryLogger, RegimeScheduleEvent, RegimeScheduleLogger, AuthLogger
 from .pseudo_fs import PseudoFilesystem
+from .alerts import AlertSink
+from .limits import ConnectionLimiter, RateLimiter
 from .signals import SignalLogger
 from .perturbation import PerturbationEngine, Regime
 from src.analytics.cerf_engine import CERFEngine
@@ -28,6 +30,13 @@ class DecoyConfig:
     # A/B test: this share of sessions (chosen by session-id hash) gets no perturbation at all.
     # Compare CERF accuracy of control vs treatment with analytics.validation.ab_report.
     control_fraction: float = 0.0
+    # Resource limits (per source IP unless noted) and operator alerts.
+    max_conns_per_ip: int = 20
+    max_conns_total: int = 1000
+    max_commands_per_session: int = 2000
+    http_requests_per_minute_per_ip: int = 300
+    alerts_path: str = "alerts.jsonl"
+    alert_webhook: Optional[str] = None  # default: $CERDA_ALERT_WEBHOOK
     ssh_host_key_path: str = "ssh_host_ed25519_key"
     use_rl: bool = False
     # TCP tarpit (Patent Claim 6): shrink the kernel receive buffer on the listening
@@ -50,6 +59,9 @@ class DecoyServer:
         self.schedule_logger = RegimeScheduleLogger(self.config.regime_schedule_path)
         self.auth_logger = AuthLogger(self.config.auth_path)
         self.signal_logger = SignalLogger(self.config.signals_path)
+        self.alerts = AlertSink(self.config.alerts_path, self.config.alert_webhook)
+        self.conn_limiter = ConnectionLimiter(self.config.max_conns_per_ip, self.config.max_conns_total)
+        self.http_limiter = RateLimiter(self.config.http_requests_per_minute_per_ip)
         
     async def run_session(self, lines: AsyncIterator[str], write: Callable[[str], None],
                           drain: Callable[[], Awaitable[None]], protocol: str, source_ip: str,
@@ -61,6 +73,7 @@ class DecoyServer:
         """
         session = DecoySession(self, protocol, source_ip, session_id)
         fs = fs or PseudoFilesystem(session.session_id)
+        fs.alert = lambda kind, value: self.alerts.send(session.session_id, source_ip, protocol, kind, value)
         if prompt:
             write(prompt(fs))
             await drain()
@@ -72,7 +85,7 @@ class DecoyServer:
                         write(prompt(fs))
                         await drain()
                     continue
-                if raw_cmd in ("exit", "logout"):
+                if raw_cmd in ("exit", "logout") or session.cmd_index >= self.config.max_commands_per_session:
                     break
                 out, regime = await session.step(raw_cmd, fs.execute_command)
                 full_output = out + (prompt(fs) if prompt else "")

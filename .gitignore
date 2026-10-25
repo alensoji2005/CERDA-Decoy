@@ -8,3 +8,4 @@ models/
 .env
 ssh_host_*_key
 *.db
+*.jsonl

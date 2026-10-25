@@ -1,5 +1,7 @@
 import os
+import sqlite3
 import time
+from contextlib import closing
 import pandas as pd
 from dataclasses import dataclass
 from typing import Optional
@@ -20,10 +22,26 @@ class TelemetryEvent:
     response_sent: bool
 
 class TelemetryLogger:
+    """Appends command events to CSV, or to a SQLite table when filepath ends in ".db"
+    (WAL mode; indexed by session, so analytics can read it while the decoy writes)."""
+
+    COLUMNS = ["session_id", "timestamp_ns", "source_ip", "protocol", "command_index", "command_raw",
+               "command_root", "current_path", "regime", "delta_t_ns", "response_sent"]
+
     def __init__(self, filepath: str = "telemetry.csv"):
         self.filepath = filepath
         self._lock = threading.Lock()
-        self._ensure_header()
+        self._sqlite = filepath.endswith(".db")
+        if self._sqlite:
+            with closing(sqlite3.connect(filepath)) as db:
+                db.execute("PRAGMA journal_mode=WAL")
+                db.execute("CREATE TABLE IF NOT EXISTS telemetry (session_id TEXT, timestamp_ns INTEGER, "
+                           "source_ip TEXT, protocol TEXT, command_index INTEGER, command_raw TEXT, "
+                           "command_root TEXT, current_path TEXT, regime TEXT, delta_t_ns INTEGER, "
+                           "response_sent INTEGER)")
+                db.execute("CREATE INDEX IF NOT EXISTS ix_telemetry_session ON telemetry (session_id, command_index)")
+        else:
+            self._ensure_header()
         
     def _ensure_header(self):
         if not os.path.exists(self.filepath):
@@ -35,6 +53,11 @@ class TelemetryLogger:
             df.to_csv(self.filepath, index=False)
             
     def log_event(self, event: TelemetryEvent):
+        if self._sqlite:
+            row = tuple(event.__dict__[c] for c in self.COLUMNS)
+            with self._lock, closing(sqlite3.connect(self.filepath)) as db, db:
+                db.execute(f"INSERT INTO telemetry VALUES ({','.join('?' * len(row))})", row)
+            return
         df = pd.DataFrame([event.__dict__])
         with self._lock:
             df.to_csv(self.filepath, mode='a', header=False, index=False)

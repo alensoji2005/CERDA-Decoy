@@ -93,11 +93,20 @@ class _DecoySSHServer(asyncssh.SSHServer):
         self.source_ip = "0.0.0.0"
         self.conn = None
         self._hassh_logged = False
+        self._holds_slot = False
 
     def connection_made(self, conn: asyncssh.SSHServerConnection):
         self.conn = conn
         self.source_ip = conn.get_extra_info("peername")[0]
         conn.set_extra_info(cerda_session_id=self.session_id)
+        self._holds_slot = self.decoy.conn_limiter.acquire(self.source_ip)
+        if not self._holds_slot:  # too many connections from this IP (or in total): drop silently
+            conn.abort()
+
+    def connection_lost(self, exc):
+        if self._holds_slot:
+            self._holds_slot = False
+            self.decoy.conn_limiter.release(self.source_ip)
 
     def begin_auth(self, username: str) -> bool:
         return True  # always require (and log) a password

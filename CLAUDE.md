@@ -27,4 +27,9 @@ Running log of improvements, highest priority first. Each entry is added when th
   - Novelty / drift: `ActorRegistry.new_actors` (actors created in the last run, `new_actor` column in `sessions.csv`) and `new_actors_per_day()`; a rising rate means unseen attackers or drifting behaviour.
   - Scripted vs interactive: `operator_type` (column `operator`) from reaction times. UNCALIBRATED heuristic (median < 0.3 s or CV < 0.25 => script); calibrate before trusting.
   - Report: `python -m src.analytics.validation [sessions.csv] [--registry actors.db]`.
+- [x] **6. Operations** (51 tests pass):
+  - Limits (`src/decoy/limits.py`, `DecoyConfig`): `max_conns_per_ip` 20 and `max_conns_total` 1000 concurrent SSH connections (extras are aborted silently), `http_requests_per_minute_per_ip` 300 (extras get a 503 with the Apache Server header), `max_commands_per_session` 2000. Defaults are untuned guesses; adjust after seeing real traffic.
+  - SQLite telemetry: `telemetry_path` ending in `.db` makes `TelemetryLogger` write an indexed WAL-mode table; `read_telemetry()` (`src/analytics/telemetry_io.py`) reads either format and is used by the CERF engine and the dashboard. CSV stays the default (scripts and tests use it). Analytics still re-reads the whole table every 3 s, so it is durable but not incremental yet.
+  - Canary alerts (`src/decoy/alerts.py`): honeytoken reads (SSH `cat` of bait files via `is_honeytoken`, HTTP bait paths) and `wget`/`curl` download attempts append to `alerts.jsonl` (one alert per session/kind/value) and POST to `alert_webhook` / `$CERDA_ALERT_WEBHOOK` as `{"text","content"}` (Slack/Discord style). Webhook failures are swallowed.
+  - NOT done: dashboard authentication and a Docker/compose update for the new files; `docker-compose.yml` still needs `signals.csv`, `alerts.jsonl`, `actors.db` on a volume before deploying.
 - [x] Stage 1.3 shell realism (pseudo_fs.py, ssh_server.py, tests/test_fs_realism.py) — 34 tests pass

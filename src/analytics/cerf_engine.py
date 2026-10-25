@@ -6,6 +6,7 @@ import pandas as pd
 from typing import Dict, List, Tuple
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+from .telemetry_io import read_telemetry
 from .validation import operator_type
 from .sanitization import extract_urls, sanitize_command
 from .features import FeatureExtractor
@@ -54,7 +55,7 @@ class CERFEngine:
     def load_and_sanitize(self) -> pd.DataFrame:
         if not os.path.exists(self.telemetry_path):
             raise FileNotFoundError(f"Telemetry file not found at {self.telemetry_path}")
-        df = pd.read_csv(self.telemetry_path)
+        df = read_telemetry(self.telemetry_path)
         df["command_raw"] = df["command_raw"].astype(str).apply(sanitize_command)
         return df
 

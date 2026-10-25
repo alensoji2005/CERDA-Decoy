@@ -6,6 +6,7 @@ from typing import Dict, Any, Tuple
 
 import pandas as pd
 import streamlit as st
+from src.analytics.telemetry_io import read_telemetry
 from streamlit_autorefresh import st_autorefresh
 
 from .visualizations import (
@@ -56,7 +57,7 @@ class CERDDashboard:
             ])
             
         if os.path.exists(self.telemetry_path):
-            self.telemetry_df = pd.read_csv(self.telemetry_path)
+            self.telemetry_df = read_telemetry(self.telemetry_path)
         else:
             self.telemetry_df = pd.DataFrame(columns=[
                 "session_id", "timestamp_ns", "source_ip", "protocol",

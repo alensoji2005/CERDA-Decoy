@@ -2,7 +2,7 @@ import posixpath
 import re
 from typing import Tuple
 from . import system_commands as sysinfo
-from .llm_provider import LLMProvider
+from .llm_provider import LLMProvider, is_honeytoken
 
 HOSTNAME = "srv-prod-01"
 KERNEL_RELEASE = "5.15.0-105-generic"
@@ -71,6 +71,7 @@ class PseudoFilesystem:
         self.cwd = self.home
         self.command_history = []
         self.written = {}  # path -> contents written via `>` / `>>` / tee
+        self.alert = lambda kind, value: None  # set by the session loop: raises canary alerts
         self.llm = LLMProvider(use_mock=True)
         self.virtual_tree = {k: list(v) for k, v in BASE_TREE.items()}
         if username == "root":
@@ -343,6 +344,8 @@ class PseudoFilesystem:
         if path == "/etc/shadow" and self.username != "root":
             return "cat: /etc/shadow: Permission denied\n"
         # Unknown or sensitive files (credentials, configs) are generated as honeytokens.
+        if is_honeytoken(path):
+            self.alert("honeytoken_read", path)
         return self.llm.generate_file_content(path, self.command_history)
 
     def _uname(self, flags) -> str:
@@ -360,6 +363,7 @@ class PseudoFilesystem:
         if not urls:
             return f"{tool}: missing URL\n"
         url = urls[0]
+        self.alert("download_attempt", url)
         name = posixpath.basename(url.split("?")[0].rstrip("/")) or "index.html"
         # Nothing is downloaded: the file only appears in the virtual tree.
         if tool == "curl":

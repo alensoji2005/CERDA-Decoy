@@ -85,6 +85,8 @@ class HTTPDecoy:
 
     async def handle(self, request: web.Request) -> web.StreamResponse:
         ip = request.remote or "0.0.0.0"
+        if not self.decoy.http_limiter.allow(ip):
+            return web.Response(status=503, text="Service Unavailable", headers={"Server": SERVER_HEADER})
         session = self._session_for(ip)
         if session.cmd_index == 0:  # first request of the session
             log = self.decoy.signal_logger.log
@@ -114,6 +116,7 @@ class HTTPDecoy:
         if path == "/":
             return 200, APACHE_DEFAULT, "text/html", 0
         if path in HONEYTOKEN_PATHS:
+            self.decoy.alerts.send(session.session_id, session.source_ip, "HTTP", "honeytoken_read", path)
             return 200, self.llm.generate_file_content(path, []), "text/plain", 1
         if path == "/wp-login.php":
             error = ""

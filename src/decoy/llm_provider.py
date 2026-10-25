@@ -12,6 +12,15 @@ load_dotenv()
 LLM_MODEL = os.getenv("CERDA_LLM_MODEL", "gemini-2.5-flash")
 # Cost / abuse guards for the real model: calls per provider instance (one per attacker session),
 # reply length, and how much attacker text may enter a prompt.
+# Paths whose contents are bait (fake credentials/keys). Reading one raises a canary alert.
+HONEYTOKEN_MARKERS = (".aws/credentials", "database.yml", "wp-config.php", "/.env", "shadow", "id_rsa")
+
+
+def is_honeytoken(path: str) -> bool:
+    path = path.replace("\\", "/").lower()
+    return any(marker in path for marker in HONEYTOKEN_MARKERS)
+
+
 MAX_LLM_CALLS = 20
 MAX_LLM_OUTPUT_CHARS = 4000
 MAX_UNTRUSTED_CHARS = 2000
