@@ -6,7 +6,7 @@ import pandas as pd
 from typing import Dict, List, Tuple
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-from .sanitization import sanitize_command
+from .sanitization import extract_urls, sanitize_command
 from .features import FeatureExtractor
 from .embedding import CERFEmbeddingModel
 from .transformer_model import TransformerEmbeddingModel
@@ -18,11 +18,13 @@ class CERFEngine:
     CLUSTER_THRESHOLDS = {"pca": 6, "transformer": 10}
 
     def __init__(self, telemetry_path: str = "telemetry.csv", output_dir: str = ".", embedding: str = "transformer",
-                 registry_path: str = None):
+                 registry_path: str = None, signals_path: str = None):
         """embedding: "transformer" (trained Spatio-Temporal Transformer over per-command
         sequences, default) or "pca" (timing + AST + TF-IDF -> PCA). Falls back to PCA
         if the trained Transformer weights are missing (see scripts/train_transformer.py)."""
-        """registry_path: SQLite file for persistent actor IDs; None = stateless clustering."""
+        """registry_path: SQLite file for persistent actor IDs; None = stateless clustering.
+        signals_path: signals.csv from the decoy; its per-session values (HASSH, SSH public keys,
+        HTTP header order, user agent) are added to sessions.csv as corroborating columns."""
         if embedding not in ("pca", "transformer"):
             raise ValueError(f"Unknown embedding backend: {embedding}")
         self.telemetry_path = telemetry_path
@@ -40,6 +42,7 @@ class CERFEngine:
         self.embedding = embedding
         self.clusterer = CERFClusterer()
         self.registry_path = registry_path
+        self.signals_path = signals_path
         self.features = {}
         self.session_meta = {}
         self.pca_vectors = {}
@@ -75,13 +78,15 @@ class CERFEngine:
             
             dominant_regime = sdf["regime"].mode()[0] if not sdf["regime"].empty else "baseline"
             source_ip = sdf["source_ip"].iloc[0] if not sdf.empty else "0.0.0.0"
+            urls = extract_urls(sdf["command_raw"])
             num_commands = len(sdf)
             
             self.session_meta[session_id] = {
                 "session_id": session_id,
                 "source_ip": source_ip,
                 "num_commands": num_commands,
-                "dominant_regime": dominant_regime
+                "dominant_regime": dominant_regime,
+                "download_urls": " ".join(urls)
             }
             
         return self.features
@@ -102,6 +107,21 @@ class CERFEngine:
             X_pca = self._embed([self.features[session_id]])
             self.pca_vectors[session_id] = X_pca[0]
         return self.embedding_model.compute_cerf_hash(self.pca_vectors[session_id])
+
+    SIGNAL_COLUMNS = {"hassh": "hassh", "pubkey": "pubkeys", "header_order": "header_order",
+                      "user_agent": "user_agent"}
+
+    def _add_signals(self, sessions_df: pd.DataFrame) -> pd.DataFrame:
+        """Join signals.csv onto sessions as one column per signal kind (unique values, space-joined)."""
+        for col in self.SIGNAL_COLUMNS.values():
+            sessions_df[col] = ""
+        if not (self.signals_path and os.path.exists(self.signals_path)) or sessions_df.empty:
+            return sessions_df
+        signals = pd.read_csv(self.signals_path, dtype=str, keep_default_na=False)
+        for (session_id, kind), values in signals.groupby(["session_id", "kind"])["value"]:
+            if kind in self.SIGNAL_COLUMNS:
+                sessions_df.loc[sessions_df["session_id"] == session_id, self.SIGNAL_COLUMNS[kind]] =                     " ".join(dict.fromkeys(values))
+        return sessions_df
 
     def run_pipeline(self) -> pd.DataFrame:
         df = self.load_and_sanitize()
@@ -131,7 +151,7 @@ class CERFEngine:
         for meta in meta_list:
             meta["threat_actor_id"] = session_to_ta[meta["session_id"]]
             
-        sessions_df = pd.DataFrame(meta_list)
+        sessions_df = self._add_signals(pd.DataFrame(meta_list))
         output_sessions_path = os.path.join(self.output_dir, "sessions.csv")
         sessions_df.to_csv(output_sessions_path, index=False)
         

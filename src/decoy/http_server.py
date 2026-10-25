@@ -12,6 +12,7 @@ from typing import Dict, Tuple
 from aiohttp import web
 
 from .llm_provider import LLMProvider
+from .signals import header_order
 from .telemetry import AuthEvent
 
 SERVER_HEADER = "Apache/2.4.52 (Ubuntu)"
@@ -85,6 +86,10 @@ class HTTPDecoy:
     async def handle(self, request: web.Request) -> web.StreamResponse:
         ip = request.remote or "0.0.0.0"
         session = self._session_for(ip)
+        if session.cmd_index == 0:  # first request of the session
+            log = self.decoy.signal_logger.log
+            log(session.session_id, ip, "HTTP", "header_order", header_order(request.raw_headers))
+            log(session.session_id, ip, "HTTP", "user_agent", request.headers.get("User-Agent", ""))
         form = await request.post() if request.method == "POST" else {}
         raw_cmd = f"{request.method} {request.path_qs}"
 

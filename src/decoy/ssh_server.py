@@ -8,8 +8,11 @@ import time
 import uuid
 
 import asyncssh
+from asyncssh import connection as _asyncssh_connection
+from asyncssh.packet import String
 
 from .pseudo_fs import HOSTNAME, PseudoFilesystem
+from .signals import hassh
 from .telemetry import AuthEvent
 
 # Looks like a stock Ubuntu 22.04 server (asyncssh prefixes "SSH-2.0-").
@@ -21,6 +24,29 @@ COMMON_PASSWORDS = {"123456", "password", "admin", "root", "toor", "12345678", "
 ACCEPT_AFTER_ATTEMPTS = 3
 MAX_TRACKED_IPS = 100_000
 _attempts_by_ip: dict = {}
+
+
+def _allow_repeated_userauth_request():
+    """OpenSSH re-accepts a repeated `ssh-userauth` service request; asyncssh disconnects.
+    paramiko-based bots send one per auth method (e.g. a key, then a password), so without
+    this they would be dropped mid-login. Patches asyncssh's private packet table."""
+    msg = _asyncssh_connection.MSG_SERVICE_REQUEST
+    original = _asyncssh_connection.SSHConnection._packet_handlers[msg]
+
+    def handler(self, pkttype, pktid, packet):
+        if self._next_service is None and self._auth_in_progress and not self.is_client():
+            service = packet.get_string()
+            packet.check_end()
+            if service == b"ssh-userauth":
+                self.send_packet(_asyncssh_connection.MSG_SERVICE_ACCEPT, String(service))
+                return
+            raise asyncssh.ServiceNotAvailable("Unexpected service in service request")
+        return original(self, pkttype, pktid, packet)
+
+    _asyncssh_connection.SSHConnection._packet_handlers[msg] = handler
+
+
+_allow_repeated_userauth_request()
 
 
 def load_or_create_host_key(path: str) -> asyncssh.SSHKey:
@@ -47,6 +73,7 @@ class _DecoySSHServer(asyncssh.SSHServer):
         self.session_id = f"session_{uuid.uuid4().hex[:8]}"
         self.source_ip = "0.0.0.0"
         self.conn = None
+        self._hassh_logged = False
 
     def connection_made(self, conn: asyncssh.SSHServerConnection):
         self.conn = conn
@@ -59,7 +86,23 @@ class _DecoySSHServer(asyncssh.SSHServer):
     def password_auth_supported(self) -> bool:
         return True
 
+    def public_key_auth_supported(self) -> bool:
+        return True
+
+    def validate_public_key(self, username: str, key: asyncssh.SSHKey) -> bool:
+        """Log the offered key (reveals the attacker's key reuse across hosts); never accept."""
+        self._log_signal("pubkey", f"{username}:{key.get_fingerprint()}")
+        return False
+
+    def _log_signal(self, kind: str, value: str):
+        if not self._hassh_logged:  # first auth attempt: key exchange is complete
+            self._hassh_logged = True
+            self.decoy.signal_logger.log(self.session_id, self.source_ip, "SSH", "hassh",
+                                         hassh(self.conn._client_kexinit))
+        self.decoy.signal_logger.log(self.session_id, self.source_ip, "SSH", kind, value)
+
     def validate_password(self, username: str, password: str) -> bool:
+        self._log_signal("login_attempt", f"{username}:{password}")  # wordlist order within the session
         if len(_attempts_by_ip) >= MAX_TRACKED_IPS:
             _attempts_by_ip.clear()
         attempts = _attempts_by_ip[self.source_ip] = _attempts_by_ip.get(self.source_ip, 0) + 1

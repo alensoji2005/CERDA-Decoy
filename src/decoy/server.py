@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import AsyncIterator, Awaitable, Callable, List, Optional, Tuple
 from .telemetry import TelemetryEvent, TelemetryLogger, RegimeScheduleEvent, RegimeScheduleLogger, AuthLogger
 from .pseudo_fs import PseudoFilesystem
+from .signals import SignalLogger
 from .perturbation import PerturbationEngine, Regime
 from src.analytics.cerf_engine import CERFEngine
 
@@ -18,6 +19,7 @@ class DecoyConfig:
     regime_schedule_path: str = "regime_schedule.csv"
     auth_path: str = "auth.csv"
     actor_registry_path: str = "actors.db"
+    signals_path: str = "signals.csv"
     ssh_host_key_path: str = "ssh_host_ed25519_key"
     use_rl: bool = False
     # TCP tarpit (Patent Claim 6): shrink the kernel receive buffer on the listening
@@ -39,6 +41,7 @@ class DecoyServer:
         self.logger = TelemetryLogger(self.config.telemetry_path)
         self.schedule_logger = RegimeScheduleLogger(self.config.regime_schedule_path)
         self.auth_logger = AuthLogger(self.config.auth_path)
+        self.signal_logger = SignalLogger(self.config.signals_path)
         
     async def run_session(self, lines: AsyncIterator[str], write: Callable[[str], None],
                           drain: Callable[[], Awaitable[None]], protocol: str, source_ip: str,
@@ -83,7 +86,8 @@ class DecoyServer:
     async def run_analytics_loop(self):
         while True:
             try:
-                engine = CERFEngine(telemetry_path=self.config.telemetry_path, registry_path=self.config.actor_registry_path)
+                engine = CERFEngine(telemetry_path=self.config.telemetry_path, registry_path=self.config.actor_registry_path,
+                                    signals_path=self.config.signals_path)
                 await asyncio.to_thread(engine.run_pipeline)
             except Exception as e:
                 pass

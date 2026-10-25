@@ -8,3 +8,16 @@ def sanitize_command(raw_cmd: str) -> str:
     clean = ansi_escape.sub('', raw_cmd)
     clean = "".join(ch for ch in clean if ch.isprintable())
     return " ".join(clean.strip().split())
+
+
+_URL = re.compile(r"https?://[^\s'\"<>|;&]+")
+
+
+def extract_urls(commands) -> list:
+    """Unique URLs (in order of first appearance) mentioned in a session's commands, e.g. malware
+    dropper URLs from wget/curl. The same URL across sessions is a strong attribution signal."""
+    seen = {}
+    for cmd in commands:
+        for url in _URL.findall(str(cmd)):
+            seen.setdefault(url, None)
+    return list(seen)
