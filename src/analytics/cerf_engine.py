@@ -10,17 +10,19 @@ from .sanitization import sanitize_command
 from .features import FeatureExtractor
 from .embedding import CERFEmbeddingModel
 from .transformer_model import TransformerEmbeddingModel
-from .clustering import CERFClusterer
+from .clustering import ActorRegistry, CERFClusterer
 
 class CERFEngine:
     # Hamming-distance clustering threshold per backend. Transformer value calibrated
     # (benchmark seed 7) between max within-actor (7) and min between-actor (14) distance.
     CLUSTER_THRESHOLDS = {"pca": 6, "transformer": 10}
 
-    def __init__(self, telemetry_path: str = "telemetry.csv", output_dir: str = ".", embedding: str = "transformer"):
+    def __init__(self, telemetry_path: str = "telemetry.csv", output_dir: str = ".", embedding: str = "transformer",
+                 registry_path: str = None):
         """embedding: "transformer" (trained Spatio-Temporal Transformer over per-command
         sequences, default) or "pca" (timing + AST + TF-IDF -> PCA). Falls back to PCA
         if the trained Transformer weights are missing (see scripts/train_transformer.py)."""
+        """registry_path: SQLite file for persistent actor IDs; None = stateless clustering."""
         if embedding not in ("pca", "transformer"):
             raise ValueError(f"Unknown embedding backend: {embedding}")
         self.telemetry_path = telemetry_path
@@ -37,6 +39,7 @@ class CERFEngine:
             self.embedding_model = CERFEmbeddingModel(models_dir=models_dir)
         self.embedding = embedding
         self.clusterer = CERFClusterer()
+        self.registry_path = registry_path
         self.features = {}
         self.session_meta = {}
         self.pca_vectors = {}
@@ -115,7 +118,16 @@ class CERFEngine:
             session_cerfs.append((session_id, cerf_hash))
             meta_list.append(meta)
             
-        session_to_ta = self.clusterer.cluster_sessions(session_cerfs, threshold=self.CLUSTER_THRESHOLDS[self.embedding])
+        threshold = self.CLUSTER_THRESHOLDS[self.embedding]
+        if self.registry_path:
+            registry = ActorRegistry(self.registry_path)
+            try:
+                session_to_ta = registry.assign(
+                    [(sid, cerf, self.session_meta[sid]["num_commands"]) for sid, cerf in session_cerfs], threshold)
+            finally:
+                registry.close()
+        else:
+            session_to_ta = self.clusterer.cluster_sessions(session_cerfs, threshold=threshold)
         for meta in meta_list:
             meta["threat_actor_id"] = session_to_ta[meta["session_id"]]
             

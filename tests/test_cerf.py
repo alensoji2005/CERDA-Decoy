@@ -168,3 +168,29 @@ def test_b7_missing_weights_falls_back_to_pca(temp_env, monkeypatch):
     with pytest.warns(UserWarning, match="falling back to PCA"):
         engine = CERFEngine(telemetry_path, temp_dir)
     assert engine.embedding == "pca"
+
+
+def test_b8_actor_registry_stable_ids(temp_env):
+    """Test B8: TA IDs persist across runs and don't renumber when new sessions arrive first/later."""
+    from src.analytics.clustering import ActorRegistry
+    temp_dir = temp_env[0] if isinstance(temp_env, tuple) else temp_env
+    path = os.path.join(temp_dir, "actors.db")
+    a, b, c = "0" * 16, "f" * 16, "0000ffffffffffff"  # a and b are far apart; c is far from both
+
+    reg = ActorRegistry(path)
+    first = reg.assign([("s1", a, 3), ("s2", b, 3)], threshold=6)
+    reg.close()
+    assert first == {"s1": "TA-001", "s2": "TA-002"}
+
+    reg = ActorRegistry(path)  # restart; new session listed first must not steal an ID
+    second = reg.assign([("s3", c, 3), ("s2", b, 3), ("s1", a, 3), ("s4", a, 2)], threshold=6)
+    assert second["s1"] == "TA-001" and second["s2"] == "TA-002"
+    assert second["s4"] == "TA-001" and second["s3"] == "TA-003"
+
+    # a growing session is re-matched; its now-empty actor is dropped
+    third = reg.assign([("s3", a, 5)], threshold=6)
+    reg.close()
+    assert third["s3"] == "TA-001"
+    reg = ActorRegistry(path)
+    assert [r[0] for r in reg.db.execute("SELECT id FROM actors ORDER BY id")] == ["TA-001", "TA-002"]
+    reg.close()

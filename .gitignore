@@ -7,3 +7,4 @@ models/
 !requirements.txt
 .env
 ssh_host_*_key
+*.db

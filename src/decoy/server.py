@@ -17,6 +17,7 @@ class DecoyConfig:
     telemetry_path: str = "telemetry.csv"
     regime_schedule_path: str = "regime_schedule.csv"
     auth_path: str = "auth.csv"
+    actor_registry_path: str = "actors.db"
     ssh_host_key_path: str = "ssh_host_ed25519_key"
     use_rl: bool = False
     # TCP tarpit (Patent Claim 6): shrink the kernel receive buffer on the listening
@@ -82,7 +83,7 @@ class DecoyServer:
     async def run_analytics_loop(self):
         while True:
             try:
-                engine = CERFEngine(telemetry_path=self.config.telemetry_path)
+                engine = CERFEngine(telemetry_path=self.config.telemetry_path, registry_path=self.config.actor_registry_path)
                 await asyncio.to_thread(engine.run_pipeline)
             except Exception as e:
                 pass
