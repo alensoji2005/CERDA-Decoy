@@ -2,7 +2,7 @@
 
 Running log of improvements, highest priority first. Each entry is added when the item is done and tested.
 
-## Backlog (priority order)
+## Backlog (priority order, all six done 2026-10-25; remaining work is in NEXT_STEPS.md: VPS deploy, real-data collection, legal)
 1. Timing fix: measure attacker reaction time, not our own injected delay
 2. Persistent actor registry (stable TA-IDs)
 3. More attribution signals (HASSH, pubkeys, wordlist order, URLs, HTTP headers)
@@ -31,5 +31,5 @@ Running log of improvements, highest priority first. Each entry is added when th
   - Limits (`src/decoy/limits.py`, `DecoyConfig`): `max_conns_per_ip` 20 and `max_conns_total` 1000 concurrent SSH connections (extras are aborted silently), `http_requests_per_minute_per_ip` 300 (extras get a 503 with the Apache Server header), `max_commands_per_session` 2000. Defaults are untuned guesses; adjust after seeing real traffic.
   - SQLite telemetry: `telemetry_path` ending in `.db` makes `TelemetryLogger` write an indexed WAL-mode table; `read_telemetry()` (`src/analytics/telemetry_io.py`) reads either format and is used by the CERF engine and the dashboard. CSV stays the default (scripts and tests use it). Analytics still re-reads the whole table every 3 s, so it is durable but not incremental yet.
   - Canary alerts (`src/decoy/alerts.py`): honeytoken reads (SSH `cat` of bait files via `is_honeytoken`, HTTP bait paths) and `wget`/`curl` download attempts append to `alerts.jsonl` (one alert per session/kind/value) and POST to `alert_webhook` / `$CERDA_ALERT_WEBHOOK` as `{"text","content"}` (Slack/Discord style). Webhook failures are swallowed.
-  - NOT done: dashboard authentication and a Docker/compose update for the new files; `docker-compose.yml` still needs `signals.csv`, `alerts.jsonl`, `actors.db` on a volume before deploying.
+  - NOT done: dashboard authentication (compose binds it to 127.0.0.1 only; put it behind an SSH tunnel or reverse proxy with auth before exposing). Docker needs no change: the container's working dir is the `/data` volume, so `signals.csv`, `alerts.jsonl` and `actors.db` land there. The image has still never been built.
 - [x] Stage 1.3 shell realism (pseudo_fs.py, ssh_server.py, tests/test_fs_realism.py) — 34 tests pass
