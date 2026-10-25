@@ -73,6 +73,7 @@ class DecoyServer:
                 else:
                     write(full_output)
                     await drain()
+                session.mark_response_end()
         except (ConnectionError, asyncio.IncompleteReadError, BrokenPipeError):
             pass  # attacker hung up mid-session
         finally:
@@ -126,7 +127,10 @@ class DecoySession:
         self.engine = PerturbationEngine(seed=self.seed, use_rl=decoy.config.use_rl,
                                          default_schedule=decoy.config.default_schedule)
         self.cmd_index = 0
-        self.last_cmd_time = time.monotonic_ns()
+        # End of our last response (or session start). delta_t is measured from here to the
+        # next command's arrival, so it is the attacker's reaction time and excludes any
+        # delay or byte drip we injected ourselves.
+        self.last_response_end_ns = time.monotonic_ns()
         self.last_activity = time.monotonic()
         self.last_regime = "baseline"
         self.regime_start_idx = 0
@@ -136,8 +140,7 @@ class DecoySession:
         """execute(raw_cmd) -> (output, current_path, fs_weight). Returns (output, regime)."""
         now_ns = time.monotonic_ns()
         self.last_activity = time.monotonic()
-        delta_t_ns = now_ns - self.last_cmd_time
-        self.last_cmd_time = now_ns
+        delta_t_ns = now_ns - self.last_response_end_ns
 
         regime = self.engine.get_regime_for_command(self.cmd_index, self.last_regime, delta_t_ns)
         if regime.value != self.last_regime and self.cmd_index > 0:
@@ -169,7 +172,11 @@ class DecoySession:
         self.last_regime = regime.value
         self.last_dt = delta_t_ns
         self.cmd_index += 1
+        self.mark_response_end()  # callers that stream a slower response call this again afterwards
         return out, regime
+
+    def mark_response_end(self):
+        self.last_response_end_ns = time.monotonic_ns()
 
     def close(self):
         if self.cmd_index > 0:

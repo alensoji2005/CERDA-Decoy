@@ -249,3 +249,25 @@ def test_a7_http_decoy(temp_env):
     assert list(telemetry["command_raw"]) == ["GET /", "GET /.env", "GET /wp-admin/", "GET /wp-login.php",
                                               "GET /nope.php", "POST /wp-login.php"]
     assert list(telemetry["command_index"]) == list(range(6))
+
+
+def test_a8_delta_t_excludes_injected_delay(temp_env):
+    """Test A8: delta_t is the attacker's reaction time; our own R1 delay must not leak into it."""
+    import asyncio
+    from src.decoy import DecoyConfig
+    from src.decoy.server import DecoySession
+    temp_dir, telemetry_path = temp_env
+    config = decoy_config(temp_dir, telemetry_path, default_schedule=[(0, Regime.R1_SLOWDOWN)])
+
+    async def scenario():
+        decoy = DecoyServer(host="127.0.0.1", config=config)
+        session = DecoySession(decoy, "SSH", "127.0.0.1")
+        for cmd in ["ls", "pwd", "id"]:
+            await session.step(cmd, lambda c: ("", "/", 0))  # 100 ms injected delay each
+            session.mark_response_end()
+            await asyncio.sleep(0.05)  # attacker "reaction"
+        session.close()
+
+    asyncio.run(scenario())
+    dts = pd.read_csv(telemetry_path)["delta_t_ns"].iloc[1:] / 1e6
+    assert (dts >= 45).all() and (dts < 95).all(), list(dts)
