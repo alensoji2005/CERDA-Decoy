@@ -6,6 +6,7 @@ and telemetry are identical to the raw TCP decoy. Nothing is ever executed on th
 import os
 import time
 import uuid
+from collections import OrderedDict
 
 import asyncssh
 from asyncssh import connection as _asyncssh_connection
@@ -24,6 +25,24 @@ COMMON_PASSWORDS = {"123456", "password", "admin", "root", "toor", "12345678", "
 ACCEPT_AFTER_ATTEMPTS = 3
 MAX_TRACKED_IPS = 100_000
 _attempts_by_ip: dict = {}
+# Attackers who reconnect find their earlier files and history still there, like a real host.
+FS_KEEP_SECONDS = 24 * 3600
+MAX_TRACKED_FS = 10_000
+_fs_by_client: "OrderedDict[tuple, tuple]" = OrderedDict()  # (ip, user) -> (last_seen, PseudoFilesystem)
+
+
+def filesystem_for(source_ip: str, username: str, session_id: str) -> PseudoFilesystem:
+    now = time.monotonic()
+    saved = _fs_by_client.pop((source_ip, username), None)
+    if saved and now - saved[0] < FS_KEEP_SECONDS:
+        fs = saved[1]
+        fs.cwd, fs.session_id = fs.home, session_id
+    else:
+        fs = PseudoFilesystem(session_id, username)
+    _fs_by_client[(source_ip, username)] = (now, fs)
+    while len(_fs_by_client) > MAX_TRACKED_FS:
+        _fs_by_client.popitem(last=False)
+    return fs
 
 
 def _allow_repeated_userauth_request():
@@ -122,7 +141,7 @@ async def _handle_process(decoy, process: asyncssh.SSHServerProcess):
     session_id = conn.get_extra_info("cerda_session_id")
     username = process.get_extra_info("username") or "root"
     source_ip = conn.get_extra_info("peername")[0]
-    fs = PseudoFilesystem(session_id, username)
+    fs = filesystem_for(source_ip, username, session_id)
 
     try:
         if process.command:  # `ssh host "cmd; cmd"` -- common for bots

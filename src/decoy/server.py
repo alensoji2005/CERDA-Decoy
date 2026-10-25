@@ -11,6 +11,10 @@ from .signals import SignalLogger
 from .perturbation import PerturbationEngine, Regime
 from src.analytics.cerf_engine import CERFEngine
 
+R3_DRIP_BUDGET_S = 0.3  # max total time one R3 response may be dripped
+R3_DRIP_MIN_GAP_S = 0.02
+
+
 @dataclass
 class DecoyConfig:
     ssh_port: int = 2222
@@ -69,11 +73,16 @@ class DecoyServer:
                 out, regime = await session.step(raw_cmd, fs.execute_command)
                 full_output = out + (prompt(fs) if prompt else "")
                 if regime == Regime.R3_FS_LATENCY:
-                    # Application-layer byte drip during the R3 regime
-                    for char in full_output:
-                        write(char)
+                    # Application-layer drip during the R3 regime. Total time is capped so slow bots
+                    # don't hit their read timeout, and the number of sleeps is bounded because
+                    # OS timers (Windows ~15 ms) can't honour thousands of sub-millisecond sleeps.
+                    n_chunks = min(len(full_output), int(R3_DRIP_BUDGET_S / R3_DRIP_MIN_GAP_S)) or 1
+                    size = -(-len(full_output) // n_chunks)  # ceil
+                    max_gap = R3_DRIP_BUDGET_S / n_chunks
+                    for i in range(0, len(full_output), size):
+                        write(full_output[i:i + size])
                         await drain()
-                        await asyncio.sleep(random.uniform(0.02, 0.08))
+                        await asyncio.sleep(min(random.uniform(0.02, 0.08), max_gap))
                 else:
                     write(full_output)
                     await drain()

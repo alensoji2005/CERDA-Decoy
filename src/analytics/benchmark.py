@@ -47,3 +47,16 @@ if __name__ == "__main__":
     for name, df in benchmark_scenarios().items():
         for embedding in ("pca", "transformer"):
             print(f"{name:22s} {embedding:12s} {score_attribution(df.reset_index(drop=True), embedding)}")
+
+
+def regime_drop_rates(telemetry: "pd.DataFrame") -> dict:
+    """Per regime: share of its commands after which the attacker never sent another one.
+
+    A regime that drops far more sessions than baseline is too aggressive (bots hang up
+    instead of revealing their behaviour). Compare against "baseline", not against zero:
+    every session ends somewhere.
+    """
+    df = telemetry.sort_values(["session_id", "command_index"])
+    last = df.groupby("session_id").tail(1)["regime"].value_counts()
+    total = df["regime"].value_counts()
+    return {regime: float(last.get(regime, 0)) / count for regime, count in total.items()}

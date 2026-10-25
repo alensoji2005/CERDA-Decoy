@@ -1,6 +1,7 @@
 import posixpath
 import re
 from typing import Tuple
+from . import system_commands as sysinfo
 from .llm_provider import LLMProvider
 
 HOSTNAME = "srv-prod-01"
@@ -44,7 +45,7 @@ STATIC_FILES = {
 
 BASE_TREE = {
     "/": ["bin", "boot", "dev", "etc", "home", "lib", "opt", "proc", "root", "run", "sbin", "srv", "tmp", "usr", "var"],
-    "/etc": ["apt", "cron.d", "hostname", "hosts", "issue", "mysql", "nginx", "os-release", "passwd", "shadow", "ssh"],
+    "/etc": ["apt", "cron.d", "hostname", "hosts", "issue", "mysql", "apache2", "os-release", "passwd", "shadow", "ssh"],
     "/home": [],
     "/proc": ["cpuinfo", "meminfo", "version"],
     "/tmp": [],
@@ -58,7 +59,8 @@ BASE_TREE = {
 }
 BUILTIN_COMMANDS = {"cd", "pwd", "ls", "cat", "echo", "id", "whoami", "hostname", "uname", "nproc", "free",
                     "history", "which", "sudo", "wget", "curl", "touch", "rm", "chmod", "mkdir", "ps",
-                    "ifconfig", "python3", "bash", "sh"}
+                    "ifconfig", "python3", "bash", "sh", "ip", "netstat", "ss", "df", "uptime", "w", "who",
+                    "date", "env", "printenv", "crontab", "last", "lsb_release", "grep", "head", "tail", "wc"}
 
 
 class PseudoFilesystem:
@@ -68,6 +70,7 @@ class PseudoFilesystem:
         self.home = "/root" if username == "root" else f"/home/{username}"
         self.cwd = self.home
         self.command_history = []
+        self.written = {}  # path -> contents written via `>` / `>>` / tee
         self.llm = LLMProvider(use_mock=True)
         self.virtual_tree = {k: list(v) for k, v in BASE_TREE.items()}
         if username == "root":
@@ -102,10 +105,81 @@ class PseudoFilesystem:
         outputs, weight = [], 0
         for part in re.split(r"\s*(?:;|&&)\s*", raw_cmd.strip()):
             if part:
-                out, w = self._execute_one(part)
+                out, w = self._execute_pipeline(part)
                 outputs.append(out)
                 weight = max(weight, w)
         return "".join(outputs), self.cwd, weight
+
+    def _execute_pipeline(self, line: str) -> Tuple[str, int]:
+        """`cmd | filter | filter > file`: only the first stage is a real command; later stages
+        are text filters over its output. Redirects write into the virtual tree."""
+        data, weight = "", 0
+        for i, stage in enumerate(line.split("|")):
+            cmd, target, append = self._strip_redirects(stage)
+            if cmd:
+                if i == 0:
+                    data, weight = self._execute_one(cmd)
+                else:
+                    data = self._filter(cmd, data)
+            if target:
+                self._write(target, data, append)
+                data = ""
+        return data, weight
+
+    @staticmethod
+    def _strip_redirects(stage: str):
+        stage = re.sub(r"\s*(?:2>\s*\S+|&>\s*\S+|\d>&\d)", "", stage).strip()
+        m = re.search(r"\s*(>>?)\s*(\S+)\s*$", stage)
+        if m:
+            return stage[:m.start()].strip(), m.group(2), m.group(1) == ">>"
+        return stage, None, False
+
+    def _write(self, target: str, text: str, append: bool):
+        if target == "/dev/null":
+            return
+        path = self._resolve(target)
+        if self._is_dir(posixpath.dirname(path)) and not self._is_dir(path):
+            self._add_file(path)
+            self.written[path] = (self.written.get(path, "") if append else "") + text
+
+    def _filter(self, cmd: str, data: str) -> str:
+        parts = cmd.split()
+        root, args = parts[0], parts[1:]
+        flags = [a for a in args if a.startswith("-") and not a[1:].isdigit()]
+        targets = [a for a in args if a not in flags]
+        lines = data.splitlines()
+        text = lambda rows: "".join(row + "\n" for row in rows)
+        if root == "grep" and targets:
+            pattern = targets[0].strip("'\"")
+            try:
+                regex = re.compile(pattern, re.I if "-i" in flags else 0)
+            except re.error:
+                regex = re.compile(re.escape(pattern))
+            hits = [ln for ln in lines if bool(regex.search(ln)) != ("-v" in flags)]
+            return f"{len(hits)}\n" if "-c" in flags else text(hits)
+        if root in ("head", "tail"):
+            n = 10
+            for i, a in enumerate(args):
+                if a == "-n" and i + 1 < len(args) and args[i + 1].isdigit():
+                    n = int(args[i + 1])
+                elif a.startswith("-") and a[1:].isdigit():
+                    n = int(a[1:])
+            return text(lines[:n] if root == "head" else lines[-n:] if n else [])
+        if root == "wc":
+            if "-l" in flags:
+                return f"{len(lines)}\n"
+            return f"{len(lines):7d} {len(data.split()):7d} {len(data):7d}\n"
+        if root == "sort":
+            return text(sorted(lines))
+        if root == "uniq":
+            return text(ln for i, ln in enumerate(lines) if i == 0 or ln != lines[i - 1])
+        if root == "tee":
+            for t in targets:
+                self._write(t, data, "-a" in flags)
+            return data
+        if root in ("sh", "bash", "python3", "python", "perl"):
+            return ""  # piped script: executed nowhere
+        return data  # awk, sed, cut, tr, xargs, ...: pass through unchanged
 
     def _execute_one(self, cmd: str) -> Tuple[str, int]:
         parts = cmd.split()
@@ -194,12 +268,40 @@ class PseudoFilesystem:
                 parent, name = posixpath.split(path)
                 if name in self.virtual_tree.get(parent, []) and path not in ("/", self.home):
                     self.virtual_tree[parent].remove(name)
+                    self.written.pop(path, None)
             return "", 1
 
         if root == "chmod":
             return "", 1
 
-        # Remaining commands (ps, ifconfig, ...) come from the LLM provider (or its mock).
+        if root == "ps":
+            return sysinfo.ps(self.username, flags + targets), 0
+        if root == "ifconfig":
+            return sysinfo.IFCONFIG, 0
+        if root == "ip" and targets[:1] in (["a"], ["addr"], ["address"]):
+            return sysinfo.IP_ADDR, 0
+        if root == "netstat":
+            return sysinfo.netstat(flags, self.username), 0
+        if root == "ss":
+            return sysinfo.ss(flags), 0
+        if root == "df":
+            return (sysinfo.DF_H if any(f in ("-h", "-H") for f in flags) else sysinfo.DF), 0
+        if root == "uptime":
+            return sysinfo.uptime(), 0
+        if root in ("who", "w"):
+            return (sysinfo.who if root == "who" else sysinfo.w)(self.username), 0
+        if root == "date":
+            return sysinfo.date(), 0
+        if root in ("env", "printenv"):
+            return sysinfo.env(self.username, self.home, self.cwd), 0
+        if root == "last":
+            return sysinfo.last(self.username), 0
+        if root == "lsb_release":
+            return sysinfo.lsb_release(), 0
+        if root == "crontab":
+            return sysinfo.crontab(flags, self.username), 0
+
+        # Remaining commands come from the LLM provider (or its mock).
         return self.llm.generate_command_output(cmd, self.command_history), 0
 
     def _ls(self, flags, targets) -> str:
@@ -234,6 +336,8 @@ class PseudoFilesystem:
         path = self._resolve(target)
         if self._is_dir(path):
             return f"cat: {target}: Is a directory\n"
+        if path in self.written:
+            return self.written[path]
         if path in STATIC_FILES:
             return STATIC_FILES[path]
         if path == "/etc/shadow" and self.username != "root":

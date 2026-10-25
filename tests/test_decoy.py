@@ -309,3 +309,56 @@ def test_a9_engine_joins_signals_and_urls(temp_env):
     row = sessions.iloc[0]
     assert row["hassh"] == "a" * 32 and row["pubkeys"] == "root:SHA256:abc" and row["user_agent"] == ""
     assert row["download_urls"] == "http://evil.example/x.sh"
+
+
+def test_a10_r3_drip_is_capped_and_fs_persists_per_ip(temp_env):
+    """Test A10: a long R3 response drips within its time budget; files survive a reconnect."""
+    import asyncio
+    from src.decoy.server import DecoyServer, R3_DRIP_BUDGET_S
+    from src.decoy.ssh_server import filesystem_for
+
+    async def scenario():
+        decoy = DecoyServer(host="127.0.0.1", config=decoy_config(*temp_env))
+        chunks = []
+
+        async def lines():
+            yield "a" * 400
+
+        async def drain():
+            pass
+        # one command in R3: schedule is irrelevant here, force the regime on the session engine
+        from src.decoy.server import DecoySession
+        real_step = DecoySession.step
+
+        async def forced_step(self, raw, execute):
+            out, _ = await real_step(self, raw, execute)
+            return out, Regime.R3_FS_LATENCY
+        DecoySession.step = forced_step
+        try:
+            fs = PseudoFilesystem("s")
+            fs.execute_command = lambda c: ("x" * 400, "/", 0)
+            start = time.monotonic()
+            await decoy.run_session(lines(), chunks.append, drain, "SSH", "127.0.0.1", prompt=None, fs=fs)
+            return time.monotonic() - start, "".join(chunks)
+        finally:
+            DecoySession.step = real_step
+
+    elapsed, text = asyncio.run(scenario())
+    assert len(text) == 400
+    assert elapsed < R3_DRIP_BUDGET_S + 0.5  # budget + the regime's own 50 ms delay + timer slack
+
+    first = filesystem_for("203.0.113.9", "root", "s1")
+    first.execute_command("touch /tmp/dropped.sh")
+    first.cwd = "/tmp"
+    again = filesystem_for("203.0.113.9", "root", "s2")
+    assert again is first and again.cwd == "/root" and "dropped.sh" in again.virtual_tree["/tmp"]
+    assert filesystem_for("203.0.113.10", "root", "s3") is not first
+
+
+def test_a11_regime_drop_rates():
+    from src.analytics.benchmark import regime_drop_rates
+    rows = [("s1", 0, "baseline"), ("s1", 1, "slowdown"), ("s2", 0, "baseline"), ("s2", 1, "slowdown"),
+            ("s3", 0, "baseline"), ("s3", 1, "baseline")]
+    df = pd.DataFrame(rows, columns=["session_id", "command_index", "regime"])
+    rates = regime_drop_rates(df)
+    assert rates == {"baseline": 0.25, "slowdown": 1.0}  # 1 of 4 baseline cmds ended a session; both slowdown cmds did
