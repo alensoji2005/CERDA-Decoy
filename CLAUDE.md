@@ -21,4 +21,10 @@ Running log of improvements, highest priority first. Each entry is added when th
   - Filesystem and history persist per (IP, user) for 24 h across reconnects (`filesystem_for` in `ssh_server.py`, capped at 10k clients).
   - LLM guards (only matter when a real Gemini key is used; the decoy currently always runs the mock): attacker text enters prompts as JSON strings with an explicit untrusted-input warning, replies capped at 4000 chars, 20 calls per session then mock fallback.
   - NOT done: HTTPS decoy + JA4. Python's `ssl` never exposes the ClientHello, so it needs a raw-socket peek before the TLS handshake; deferred to its own task.
+- [x] **5. Real-data detection tooling** (`src/analytics/validation.py`; 47 tests pass). Still needs real traffic to produce meaningful numbers; the demo run only proves the plumbing.
+  - Weak labels: sessions sharing a dropper URL or an offered SSH key (transitively) get one label; `score_clusters` = ARI of CERF actors vs those labels plus coverage. HASSH/UA/header order are deliberately not used (shared by unrelated attackers).
+  - Perturbation A/B: `DecoyConfig.control_fraction` sends that share of sessions (by session-id hash) through all-baseline; arm is logged to `signals.csv` and joined into `sessions.csv` (`arm`). `ab_report` scores each arm separately. Default 0.0 = no behaviour change.
+  - Novelty / drift: `ActorRegistry.new_actors` (actors created in the last run, `new_actor` column in `sessions.csv`) and `new_actors_per_day()`; a rising rate means unseen attackers or drifting behaviour.
+  - Scripted vs interactive: `operator_type` (column `operator`) from reaction times. UNCALIBRATED heuristic (median < 0.3 s or CV < 0.25 => script); calibrate before trusting.
+  - Report: `python -m src.analytics.validation [sessions.csv] [--registry actors.db]`.
 - [x] Stage 1.3 shell realism (pseudo_fs.py, ssh_server.py, tests/test_fs_realism.py) — 34 tests pass

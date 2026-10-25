@@ -1,4 +1,5 @@
 import sqlite3
+import time
 from typing import List, Tuple, Dict
 
 def hamming_distance(h1: str, h2: str) -> int:
@@ -41,8 +42,9 @@ class ActorRegistry:
 
     def __init__(self, path: str):
         self.db = sqlite3.connect(path)
+        self.new_actors = set()  # actors created by the latest assign() call: novel attackers
         self.db.executescript("""
-            CREATE TABLE IF NOT EXISTS actors (id TEXT PRIMARY KEY, cerf TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS actors (id TEXT PRIMARY KEY, cerf TEXT NOT NULL, created_at REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, num_commands INTEGER NOT NULL);
         """)
@@ -50,6 +52,7 @@ class ActorRegistry:
     def assign(self, sessions: List[Tuple[str, str, int]], threshold: int) -> Dict[str, str]:
         """sessions: (session_id, cerf, num_commands) -> {session_id: actor_id}."""
         result = {}
+        self.new_actors = set()
         with self.db:
             for session_id, cerf, n in sessions:
                 row = self.db.execute("SELECT actor_id, num_commands FROM sessions WHERE session_id=?",
@@ -75,8 +78,16 @@ class ActorRegistry:
     def _create(self, cerf: str) -> str:
         last = self.db.execute("SELECT MAX(id) FROM actors").fetchone()[0]
         actor_id = f"TA-{(int(last[3:]) + 1 if last else 1):03d}"
-        self.db.execute("INSERT INTO actors VALUES (?,?)", (actor_id, cerf))
+        self.db.execute("INSERT INTO actors VALUES (?,?,?)", (actor_id, cerf, time.time()))
+        self.new_actors.add(actor_id)
         return actor_id
+
+    def new_actors_per_day(self) -> Dict[str, int]:
+        """UTC date -> actors first seen that day. A rising rate means attackers the model has not
+        seen before (a new campaign, or drift in how known attackers behave)."""
+        rows = self.db.execute("SELECT strftime('%Y-%m-%d', created_at, 'unixepoch') AS d, COUNT(*) "
+                               "FROM actors GROUP BY d ORDER BY d")
+        return dict(rows)
 
     def close(self):
         self.db.close()

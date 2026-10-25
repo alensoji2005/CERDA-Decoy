@@ -6,6 +6,7 @@ import pandas as pd
 from typing import Dict, List, Tuple
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+from .validation import operator_type
 from .sanitization import extract_urls, sanitize_command
 from .features import FeatureExtractor
 from .embedding import CERFEmbeddingModel
@@ -86,7 +87,8 @@ class CERFEngine:
                 "source_ip": source_ip,
                 "num_commands": num_commands,
                 "dominant_regime": dominant_regime,
-                "download_urls": " ".join(urls)
+                "download_urls": " ".join(urls),
+                "operator": operator_type(sdf)
             }
             
         return self.features
@@ -109,7 +111,7 @@ class CERFEngine:
         return self.embedding_model.compute_cerf_hash(self.pca_vectors[session_id])
 
     SIGNAL_COLUMNS = {"hassh": "hassh", "pubkey": "pubkeys", "header_order": "header_order",
-                      "user_agent": "user_agent"}
+                      "user_agent": "user_agent", "arm": "arm"}
 
     def _add_signals(self, sessions_df: pd.DataFrame) -> pd.DataFrame:
         """Join signals.csv onto sessions as one column per signal kind (unique values, space-joined)."""
@@ -144,12 +146,15 @@ class CERFEngine:
             try:
                 session_to_ta = registry.assign(
                     [(sid, cerf, self.session_meta[sid]["num_commands"]) for sid, cerf in session_cerfs], threshold)
+                new_actors = registry.new_actors
             finally:
                 registry.close()
         else:
             session_to_ta = self.clusterer.cluster_sessions(session_cerfs, threshold=threshold)
+            new_actors = set()
         for meta in meta_list:
             meta["threat_actor_id"] = session_to_ta[meta["session_id"]]
+            meta["new_actor"] = meta["threat_actor_id"] in new_actors  # only meaningful with a registry
             
         sessions_df = self._add_signals(pd.DataFrame(meta_list))
         output_sessions_path = os.path.join(self.output_dir, "sessions.csv")

@@ -362,3 +362,29 @@ def test_a11_regime_drop_rates():
     df = pd.DataFrame(rows, columns=["session_id", "command_index", "regime"])
     rates = regime_drop_rates(df)
     assert rates == {"baseline": 0.25, "slowdown": 1.0}  # 1 of 4 baseline cmds ended a session; both slowdown cmds did
+
+
+def test_a12_control_arm_gets_no_perturbation(temp_env):
+    """Test A12: control_fraction=1 puts every session in the control arm: all baseline, arm logged."""
+    import asyncio
+    from src.decoy import DecoyConfig
+    from src.decoy.server import DecoySession
+    temp_dir, telemetry_path = temp_env
+    config = decoy_config(temp_dir, telemetry_path, control_fraction=1.0)
+
+    async def scenario():
+        decoy = DecoyServer(host="127.0.0.1", config=config)
+        session = DecoySession(decoy, "SSH", "127.0.0.1")
+        for i in range(10):  # the default schedule would reach R3 by command 6
+            await session.step(f"cmd{i}", lambda c: ("", "/", 0))
+        session.close()
+        return session
+
+    session = asyncio.run(scenario())
+    assert session.arm == "control"
+    assert set(pd.read_csv(telemetry_path)["regime"]) == {"baseline"}
+    signals = pd.read_csv(os.path.join(temp_dir, "signals.csv"))
+    assert list(signals[signals["kind"] == "arm"]["value"]) == ["control"]
+
+    treated = decoy_config(temp_dir, telemetry_path, control_fraction=0.0)
+    assert DecoySession(DecoyServer(host="127.0.0.1", config=treated), "SSH", "127.0.0.1").arm == "treatment"

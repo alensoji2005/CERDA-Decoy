@@ -2,6 +2,7 @@ import asyncio
 import time
 import uuid
 import random
+import hashlib
 import socket
 from dataclasses import dataclass, field
 from typing import AsyncIterator, Awaitable, Callable, List, Optional, Tuple
@@ -24,6 +25,9 @@ class DecoyConfig:
     auth_path: str = "auth.csv"
     actor_registry_path: str = "actors.db"
     signals_path: str = "signals.csv"
+    # A/B test: this share of sessions (chosen by session-id hash) gets no perturbation at all.
+    # Compare CERF accuracy of control vs treatment with analytics.validation.ab_report.
+    control_fraction: float = 0.0
     ssh_host_key_path: str = "ssh_host_ed25519_key"
     use_rl: bool = False
     # TCP tarpit (Patent Claim 6): shrink the kernel receive buffer on the listening
@@ -138,8 +142,13 @@ class DecoySession:
         self.source_ip = source_ip
         self.session_id = session_id or f"session_{uuid.uuid4().hex[:8]}"
         self.seed = random.randint(0, 10000)
-        self.engine = PerturbationEngine(seed=self.seed, use_rl=decoy.config.use_rl,
-                                         default_schedule=decoy.config.default_schedule)
+        bucket = int(hashlib.md5(self.session_id.encode()).hexdigest(), 16) % 1000 / 1000
+        self.arm = "control" if bucket < decoy.config.control_fraction else "treatment"
+        schedule = [(0, Regime.R0_BASELINE)] if self.arm == "control" else decoy.config.default_schedule
+        self.engine = PerturbationEngine(seed=self.seed, use_rl=decoy.config.use_rl and self.arm == "treatment",
+                                         default_schedule=schedule)
+        if decoy.config.control_fraction > 0:
+            decoy.signal_logger.log(self.session_id, source_ip, protocol, "arm", self.arm)
         self.cmd_index = 0
         # End of our last response (or session start). delta_t is measured from here to the
         # next command's arrival, so it is the attacker's reaction time and excludes any
