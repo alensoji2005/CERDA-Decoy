@@ -72,7 +72,8 @@ Phase 1 → Phase 3 (cheap, unblocks clarity) → Phase 2 → Phase 5 data colle
 
 - [x] **Stage 1.1 Real SSH decoy:** asyncssh, credential logging, interactive and exec modes, shared session loop (tests A5/A6).
 - [x] Stage 1.2 Real HTTP decoy: aiohttp, Apache/WordPress/phpMyAdmin lookalike, honeytokens, form credential logging, per-IP sessions (test A7).
-- [ ] Stage 1.3 Banner and realism audit (Shodan, honeypot detectors).
+- [x] Stage 1.3 (part 1) Shell realism: static Ubuntu system files, basic commands, `uname` options, per-directory `ls`, `cd` errors, `;`/`&&` chains, wget adds files (tests in `test_fs_realism.py`).
+- [ ] Stage 1.3 (part 2) External check against public honeypot-detection tools once deployed.
 - [ ] Stage 2: VPS deploy on port 22; collect for 2–4 weeks.
 - [ ] Stage 3: Weak labels (payload hash, download URL, credential list), perturbation on/off A/B test, retrain.
 - [ ] Stage 4: SQLite/Postgres, incremental analytics, blocklist feed, STIX/MISP, alerts, dashboard auth, resource limits.

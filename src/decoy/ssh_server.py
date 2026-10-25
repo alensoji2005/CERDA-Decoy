@@ -9,12 +9,11 @@ import uuid
 
 import asyncssh
 
-from .pseudo_fs import PseudoFilesystem
+from .pseudo_fs import HOSTNAME, PseudoFilesystem
 from .telemetry import AuthEvent
 
 # Looks like a stock Ubuntu 22.04 server (asyncssh prefixes "SSH-2.0-").
 SERVER_VERSION = "OpenSSH_8.9p1 Ubuntu-3ubuntu0.10"
-HOSTNAME = "srv-prod-01"
 # Credentials bots try first; anything else is accepted on the Nth attempt from the
 # same source IP (bots often reconnect per attempt) so brute-forcers "succeed" and
 # reveal their post-login behaviour.
@@ -35,8 +34,7 @@ def load_or_create_host_key(path: str) -> asyncssh.SSHKey:
 
 def shell_prompt(username: str):
     def prompt(fs: PseudoFilesystem) -> str:
-        home = "/root" if username == "root" else f"/home/{username}"
-        cwd = "~" + fs.cwd[len(home):] if fs.cwd.startswith(home) else fs.cwd
+        cwd = "~" + fs.cwd[len(fs.home):] if fs.cwd.startswith(fs.home) else fs.cwd
         return f"{username}@{HOSTNAME}:{cwd}{'#' if username == 'root' else '$'} "
     return prompt
 
@@ -81,11 +79,7 @@ async def _handle_process(decoy, process: asyncssh.SSHServerProcess):
     session_id = conn.get_extra_info("cerda_session_id")
     username = process.get_extra_info("username") or "root"
     source_ip = conn.get_extra_info("peername")[0]
-    fs = PseudoFilesystem(session_id)
-    if username == "root":
-        fs.cwd = "/root"
-        fs.virtual_tree.setdefault("/root", [".bashrc", ".ssh"])
-        fs.virtual_tree["/"] = sorted(set(fs.virtual_tree["/"]) | {"root"})
+    fs = PseudoFilesystem(session_id, username)
 
     try:
         if process.command:  # `ssh host "cmd; cmd"` -- common for bots
