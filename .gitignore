@@ -9,3 +9,4 @@ models/
 ssh_host_*_key
 *.db
 *.jsonl
+demo_run/

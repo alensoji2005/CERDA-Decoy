@@ -2,6 +2,7 @@ import json
 import os
 import time
 from datetime import datetime
+from src.analytics.validation import score_clusters
 from typing import Dict, Any, Tuple
 
 import pandas as pd
@@ -212,7 +213,10 @@ def main():
     kpi1.metric("Active Decoy Listeners", "Ports 2222, 8080", "Online")
     kpi2.metric("Total Captured Sessions", len(dash.sessions_df))
     kpi3.metric("Attributed Threat Actors", dash.sessions_df["threat_actor_id"].nunique() if not dash.sessions_df.empty else 0)
-    kpi4.metric("CERF Accuracy Rating", "≥ 90%", "Verified")
+    score = score_clusters(dash.sessions_df) if not dash.sessions_df.empty else {"ari": None, "labelled": 0, "sessions": 0}
+    # Measured against weak labels (shared dropper URL / SSH key); n/a until sessions carry such links.
+    kpi4.metric("Cluster Agreement (ARI)", "n/a" if score["ari"] is None else f"{score['ari']:.2f}",
+                f"{score['labelled']}/{score['sessions']} sessions labelled", delta_color="off")
     
     st.markdown("---")
     filters = dash.render_sidebar()
