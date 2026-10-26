@@ -194,7 +194,7 @@ class DecoySession:
 
         self.decoy.logger.log_event(TelemetryEvent(
             session_id=self.session_id,
-            timestamp_ns=now_ns,
+            timestamp_ns=time.time_ns(),  # wall clock for dates; delta_t uses the monotonic clock
             source_ip=self.source_ip,
             protocol=self.protocol,
             command_index=self.cmd_index,
