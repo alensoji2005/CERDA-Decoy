@@ -191,7 +191,7 @@ const REFS = [
 
 // ---------- assemble ----------
 const kids = [];
-const AUTH = [["Keshav Agarwal", "a"], ["Yuvraj Agrawal", "a"], ["Alen Varghese Soji", "a"], ["Sudha S", "a,*"]];
+const AUTH = [["Keshav Agarwal", "a"], ["Yuvraj Agrawal", "a"], ["Alen Varghese Soji", "a,*"], ["Sudha S", "a"]];
 kids.push(new Paragraph({ spacing: { ...SINGLE, after: 240 }, alignment: AlignmentType.CENTER, children: runs(C.title, { bold: true, size: 32 }) }));
 kids.push(new Paragraph({ spacing: { ...SINGLE, after: 120 }, alignment: AlignmentType.CENTER,
   children: AUTH.flatMap(([n, a], i) => [new TextRun({ text: n, font: FONT, size: 24 }), new TextRun({ text: a, font: FONT, size: 24, superScript: true }),
@@ -199,7 +199,7 @@ kids.push(new Paragraph({ spacing: { ...SINGLE, after: 120 }, alignment: Alignme
 kids.push(new Paragraph({ spacing: { ...SINGLE, after: 120 }, alignment: AlignmentType.CENTER,
   children: [new TextRun({ text: "a", font: FONT, size: 22, superScript: true }), new TextRun({ text: " School of Computer Science and Engineering (SCOPE), Vellore Institute of Technology, Vellore 632014, Tamil Nadu, India", font: FONT, size: 22, italics: true })] }));
 kids.push(new Paragraph({ spacing: { ...SINGLE, after: 360 }, alignment: AlignmentType.CENTER,
-  children: [new TextRun({ text: "* Corresponding author. Email: [CONFIRM: corresponding author's name and email address]", font: FONT, size: 22 })] }));
+  children: [new TextRun({ text: "* Corresponding author. Alen Varghese Soji. Email: alenvarghese.soji2023@vitstudent.ac.in", font: FONT, size: 22 })] }));
 kids.push(unnumbered("Abstract"));
 kids.push(para(C.abstract));
 kids.push(para(`**Keywords:** ${C.keywords.join("; ")}`));
@@ -215,20 +215,20 @@ for (const b of C.body) {
 }
 
 kids.push(unnumbered("Declaration of generative AI and AI-assisted technologies in the manuscript preparation process"));
-kids.push(para(`During the preparation of this work the authors used Claude (Anthropic) to draft and edit the text, to search for and summarise the literature, and to write and test parts of the software and the analysis scripts described in the paper. After using this tool, the authors reviewed and edited the content as needed and take full responsibility for the content of the published article. [CONFIRM: the authors must have actually reviewed and edited the content, and must check that this statement is accurate for their own use of AI tools.]`));
+kids.push(para(`During the preparation of this work the authors used Claude (Anthropic) to draft and edit the text, to search for and summarise the literature, and to write and test parts of the software and the analysis scripts described in the paper. After using this tool, the authors reviewed and edited the content as needed and take full responsibility for the content of the published article.`));
 kids.push(unnumbered("Declaration of competing interest"));
-kids.push(para(`The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper. [CONFIRM]`));
+kids.push(para(`The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.`));
 kids.push(unnumbered("Funding"));
-kids.push(para(`This research did not receive any specific grant from funding agencies in the public, commercial, or not-for-profit sectors. [CONFIRM]`));
+kids.push(para(`This research did not receive any specific grant from funding agencies in the public, commercial, or not-for-profit sectors.`));
 kids.push(unnumbered("Data availability"));
-kids.push(para(`No real network traffic was collected or analysed. All results are produced by the project's simulator from the seeds stated in Sections 5 and 6 or are logs of scripted runs against the decoy. The software, the simulator, the trained Transformer weights and the scripts that produce every result in Section 6 are in the project repository (project name: CERDA-Decoy; home page: https://github.com/alensoji2005/CERDA-Decoy; operating system: platform independent, developed and tested on Windows; programming language: Python 3.10 or later; other requirements: PyTorch, scikit-learn, pandas, asyncssh, aiohttp and Streamlit, as listed in requirements.txt). The commands that regenerate each result are listed in Appendix A. The software is released under the MIT licence. [CONFIRM: (1) push the commit used for the results (the public repository must contain the code behind Sections 4 to 6); (2) archive a tagged release with a persistent identifier such as a DOI, give it here as the archived version, and cite it in the reference list.]`));
+kids.push(para(`No real network traffic was collected or analysed. All results are produced by the project's simulator from the seeds stated in Sections 5 and 6 or are logs of scripted runs against the decoy. The software, the simulator, the trained Transformer weights and the scripts that produce every result in Section 6 are in the project repository (project name: CERDA-Decoy; home page: https://github.com/alensoji2005/CERDA-Decoy; operating system: platform independent, developed and tested on Windows; programming language: Python 3.10 or later; other requirements: PyTorch, scikit-learn, pandas, asyncssh, aiohttp and Streamlit, as listed in requirements.txt). The commands that regenerate each result are listed in Appendix A. The software is released under the MIT licence. The version used for every result in this paper is the tagged release v1.0.0 (https://github.com/alensoji2005/CERDA-Decoy/releases/tag/v1.0.0).`));
 kids.push(unnumbered("CRediT authorship contribution statement"));
-kids.push(para(`[CONFIRM: the authors state each person's contribution using the CRediT roles (Conceptualization, Data curation, Formal analysis, Funding acquisition, Investigation, Methodology, Project administration, Resources, Software, Supervision, Validation, Visualization, Writing – original draft, Writing – review and editing).]`));
+kids.push(para(`Keshav Agarwal: Software, Investigation, Writing – review and editing. Yuvraj Agrawal: Software, Investigation, Writing – review and editing. Alen Varghese Soji: Conceptualization, Methodology, Software, Investigation, Formal analysis, Data curation, Validation, Visualization, Writing – original draft, Writing – review and editing, Project administration. Sudha S: Supervision, Writing – review and editing.`));
 kids.push(unnumbered("Acknowledgements"));
-kids.push(para(`[CONFIRM: acknowledge anyone who helped and does not meet the authorship criteria, with their permission; otherwise write "None".]`));
+kids.push(para(`None.`));
 
 kids.push(unnumbered("Appendix A. Reproducing the results"));
-kids.push(para(`All commands are run from the repository root. [CONFIRM: insert the archived release identifier here.]`, {}));
+kids.push(para(`All commands are run from the repository root. The results correspond to release v1.0.0.`, {}));
 [
   "python -m pytest : runs the automated tests (57 at the time of writing).",
   "python -m scripts.train_transformer : trains the Transformer encoder (defaults: seed 42, 1,500 steps).",

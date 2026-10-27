@@ -4,9 +4,9 @@ Target: Computers & Security, Full Length Article.
 
 | File | What it is |
 |---|---|
-| `CERDA_manuscript.docx` | Manuscript: single column, A4, double spacing, continuous line numbers, numbered sections, tables as Word tables, figures embedded, declarations and references. Items in `[CONFIRM: ...]` need the authors. |
+| `CERDA_manuscript.docx` | Manuscript: single column, A4, double spacing, continuous line numbers, numbered sections, tables as Word tables, figures embedded, declarations and references.  |
 | `CERDA_manuscript_highlights.docx` | Highlights file (3-5 bullets, at most 85 characters each), uploaded separately. |
-| `cover_letter_DRAFT.docx` | Draft cover letter with candidate reviewers (names only; the authors must verify affiliations, emails and conflicts). |
+| `cover_letter.docx` | Cover letter (no suggested reviewers; add them in the portal only after verifying affiliations, emails and conflicts). |
 | `figures/` | The four figures and the graphical abstract (`graphical_abstract.png`, 1620 x 750 px) as PNG at 300 dpi. |
 | `build/` | Sources that produce the manuscript: `content.js` (text; result numbers are read from `sensitivity.json`), `build.js`, `fig1.py`, `fig2.py`, `fig34.py`, `ga.py`, `cover.js`. |
 
