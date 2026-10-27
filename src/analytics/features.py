@@ -2,13 +2,25 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Any
 
+def sorted_with_reaction_regime(session_df: pd.DataFrame) -> pd.DataFrame:
+    """Session rows in command order, plus `reaction_regime`: the regime of the response that the
+    row's delta_t reacts to. A row's `regime` is the one applied to the response to its own command,
+    but its delta_t is the reaction to the previous response (see src/schedule.py), so the pairing
+    is the previous row's regime. Command 0 has no preceding response: NaN, and delta_t is ignored."""
+    sdf = session_df.sort_values("command_index").copy()
+    sdf["reaction_regime"] = sdf["regime"].shift(1)
+    return sdf
+
+
 class FeatureExtractor:
     def extract_session_features(self, session_df: pd.DataFrame) -> Dict[str, float]:
         features = {}
-        
-        # Timing features per regime with log scaling for variance reduction
+        session_df = sorted_with_reaction_regime(session_df)
+
+        # Timing features per regime with log scaling for variance reduction. Grouped by the regime
+        # each delta_t reacts to; command 0 (no preceding response) is left out.
         for regime in ["baseline", "slowdown", "jitter", "fs_latency"]:
-            sub = session_df[session_df["regime"] == regime]["delta_t_ns"]
+            sub = session_df[session_df["reaction_regime"] == regime]["delta_t_ns"]
             if not sub.empty:
                 features[f"median_dt_{regime}"] = float(np.log1p(sub.median()))
                 features[f"std_dt_{regime}"] = float(np.log1p(sub.std(ddof=0))) if len(sub) > 1 else 0.0
@@ -23,7 +35,7 @@ class FeatureExtractor:
         features["ratio_r3_r0"] = features["median_dt_fs_latency"] / med_r0
         
         # Adaptation speed
-        dts = session_df["delta_t_ns"].values
+        dts = session_df["delta_t_ns"].values[1:]  # reactions only: command 0 has none
         if len(dts) > 1:
             diffs = np.abs(np.diff(dts))
             features["adaptation_speed"] = float(np.log1p(np.mean(diffs)))

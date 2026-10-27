@@ -87,6 +87,10 @@ def build_regime_timeline_figure(session_tdf: pd.DataFrame, theme: str) -> go.Fi
     current_reg = None
     start_idx = 0
     
+    # Shade each latency point by the regime it reacts to (the previous response's regime); the
+    # first point has no preceding response and takes its own row's regime.
+    session_tdf = session_tdf.sort_values("command_index").copy()
+    session_tdf["regime"] = session_tdf["regime"].shift(1).fillna(session_tdf["regime"])
     for i, row in session_tdf.iterrows():
         if row["regime"] != current_reg:
             if current_reg is not None:

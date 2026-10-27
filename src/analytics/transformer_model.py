@@ -4,7 +4,7 @@ import torch.nn as nn
 import numpy as np
 
 REGIMES = ["baseline", "slowdown", "jitter", "fs_latency"]
-# Per-step features: log timing + 6 AST + regime one-hot
+# Per-step features: log reaction time + 6 AST + one-hot of the regime that reaction was to
 STEP_DIM = 1 + 6 + len(REGIMES)
 DEFAULT_WEIGHTS = os.path.join(os.path.dirname(__file__), "weights", "cerf_transformer.pt")
 
@@ -74,15 +74,24 @@ class TransformerEmbeddingModel:
         """
         Converts a session DataFrame into a sequence of feature vectors.
         Output shape: (seq_len, STEP_DIM)
+
+        Each step pairs a command's structure with the reaction time that preceded it and the regime
+        of the response that reaction was to (the previous row's regime). Command 0 has no preceding
+        response, so its timing is 0 and its regime one-hot is all zeros.
         """
         seq = []
-        for _, row in session_df.sort_values("command_index").iterrows():
+        for i, (_, row) in enumerate(session_df.sort_values("command_index").iterrows()):
+            if i == 0:
+                reaction_regime, reaction_dt = None, 0.0
+            else:
+                reaction_regime, reaction_dt = previous_regime, float(row["delta_t_ns"])
+            previous_regime = row["regime"] if "regime" in row else "baseline"
             cmd = str(row["command_raw"])
             tokens = cmd.split()
             args = tokens[1:] if len(tokens) > 1 else []
             
             # 1 timing (log ns, scaled to ~[0, 1]) + 6 AST features + regime one-hot
-            dt = float(np.log1p(row["delta_t_ns"])) / 20.0
+            dt = float(np.log1p(reaction_dt)) / 20.0
             n_flags = sum(1 for a in args if a.startswith("-"))
             has_url = 1.0 if any("http://" in a or "https://" in a for a in tokens) else 0.0
             has_pipe = 1.0 if "|" in cmd else 0.0
@@ -90,8 +99,7 @@ class TransformerEmbeddingModel:
             has_subshell = 1.0 if "$(" in cmd or "`" in cmd else 0.0
             n_args = len(args)
             
-            regime = row["regime"] if "regime" in row else "baseline"
-            regime_onehot = [1.0 if regime == r else 0.0 for r in REGIMES]
+            regime_onehot = [1.0 if reaction_regime == r else 0.0 for r in REGIMES]
             step_features = [dt, n_flags, has_url, has_pipe, has_redir, has_subshell, n_args] + regime_onehot
             seq.append(step_features)
             

@@ -15,8 +15,10 @@ from .transformer_model import TransformerEmbeddingModel
 from .clustering import ActorRegistry, CERFClusterer
 
 class CERFEngine:
-    # Hamming-distance clustering threshold per backend. Transformer value calibrated
-    # (benchmark seed 7) between max within-actor (7) and min between-actor (14) distance.
+    # Hamming-distance clustering threshold per backend. Transformer value calibrated on benchmark
+    # seed 7 with the live-layout simulator and the retrained weights: max within-actor distance 10,
+    # min between-actor distance 11, so 10 is the only separating value (no margin). The PCA value
+    # is not calibrated: on seed 7 its within-actor (13) and between-actor (12) distances overlap.
     CLUSTER_THRESHOLDS = {"pca": 6, "transformer": 10}
 
     def __init__(self, telemetry_path: str = "telemetry.csv", output_dir: str = ".", embedding: str = "transformer",

@@ -4,23 +4,22 @@ import numpy as np
 from enum import Enum
 from typing import Optional
 
+from ..schedule import LIVE_SCHEDULE
+
 class Regime(Enum):
     R0_BASELINE = "baseline"
     R1_SLOWDOWN = "slowdown"
     R2_JITTER = "jitter"
     R3_FS_LATENCY = "fs_latency"
 
+DEFAULT_SCHEDULE = [(start, Regime(name)) for start, name in LIVE_SCHEDULE]
+
 class PerturbationEngine:
     def __init__(self, seed: int = 42, use_rl: bool = False, default_schedule: list = None):
         self.rng = np.random.RandomState(seed)
         self.use_rl = use_rl
         self.rl_scheduler = None
-        self.default_schedule = default_schedule or [
-            (0, Regime.R0_BASELINE),
-            (5, Regime.R1_SLOWDOWN),
-            (10, Regime.R2_JITTER),
-            (15, Regime.R3_FS_LATENCY)
-        ]
+        self.default_schedule = default_schedule or list(DEFAULT_SCHEDULE)
         if self.use_rl:
             from .rl_scheduler import RLPerturbationScheduler
             self.rl_scheduler = RLPerturbationScheduler(seed=seed)

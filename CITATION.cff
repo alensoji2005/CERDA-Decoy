@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "CERDA: Counterfactual Execution-Rhythm Decoy Architecture"
+type: software
+authors:
+  - family-names: Agarwal
+    given-names: Keshav
+  - family-names: Agrawal
+    given-names: Yuvraj
+  - family-names: Soji
+    given-names: Alen Varghese
+  - family-names: S
+    given-names: Sudha
+repository-code: "https://github.com/alensoji2005/CERDA-Decoy"
+license: MIT
+keywords:
+  - honeypot
+  - deception
+  - attribution
+  - threat intelligence

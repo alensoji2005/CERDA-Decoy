@@ -11,7 +11,7 @@ from .pseudo_fs import PseudoFilesystem
 from .alerts import AlertSink
 from .limits import ConnectionLimiter, RateLimiter
 from .signals import SignalLogger
-from .perturbation import PerturbationEngine, Regime
+from .perturbation import PerturbationEngine, Regime, DEFAULT_SCHEDULE
 from src.analytics.cerf_engine import CERFEngine
 
 R3_DRIP_BUDGET_S = 0.3  # max total time one R3 response may be dripped
@@ -44,12 +44,7 @@ class DecoyConfig:
     # attacker's sends at the network layer. Effect is OS-dependent (strongest on Linux).
     tarpit: bool = False
     tarpit_rcvbuf_bytes: int = 256
-    default_schedule: List[Tuple[int, Regime]] = field(default_factory=lambda: [
-        (0, Regime.R0_BASELINE),
-        (2, Regime.R1_SLOWDOWN),
-        (4, Regime.R2_JITTER),
-        (6, Regime.R3_FS_LATENCY)
-    ])
+    default_schedule: List[Tuple[int, Regime]] = field(default_factory=lambda: list(DEFAULT_SCHEDULE))
 
 class DecoyServer:
     def __init__(self, host: str = "0.0.0.0", config: DecoyConfig = None):

@@ -10,3 +10,5 @@ ssh_host_*_key
 *.db
 *.jsonl
 demo_run/
+# results the paper is built from
+!docs/paper/build/sensitivity.json
