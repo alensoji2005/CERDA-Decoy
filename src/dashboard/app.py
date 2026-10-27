@@ -10,6 +10,11 @@ import streamlit as st
 from src.analytics.telemetry_io import read_telemetry
 from streamlit_autorefresh import st_autorefresh
 
+from .auth import require_login
+from .replay import render_replay_tab
+from .panels import (decoy_running, render_defense_tab, render_enrichment_tab, render_export_tab, render_malware_tab,
+                     render_range_tab, with_personas)
+
 from .visualizations import (
     build_cerf_network_figure,
     build_tactics_figure,
@@ -50,7 +55,10 @@ class CERDDashboard:
         
     def load_data(self) -> None:
         if os.path.exists(self.sessions_path):
-            self.sessions_df = pd.read_csv(self.sessions_path)
+            try:
+                self.sessions_df = pd.read_csv(self.sessions_path)
+            except (ValueError, pd.errors.EmptyDataError):   # file mid-swap or empty: keep the last good copy
+                pass
         else:
             self.sessions_df = pd.DataFrame(columns=[
                 "session_id", "source_ip", "cerf", "threat_actor_id", 
@@ -127,7 +135,10 @@ class CERDDashboard:
         if sdf.empty:
             st.info("No sessions captured yet.")
             return
-        display_df = sdf[["threat_actor_id", "session_id", "source_ip", "cerf", "num_commands", "dominant_regime"]]
+        sdf = with_personas(sdf)
+        cols = ["threat_actor_id", "session_id", "source_ip", "cerf", "num_commands", "dominant_regime"]
+        extra = [c for c in ("country", "asn", "demo_attacker") if c in sdf]
+        display_df = sdf[cols + extra]
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     def render_cerf_graph(self, sdf: pd.DataFrame, theme: str) -> None:
@@ -201,6 +212,7 @@ class CERDDashboard:
 
 def main():
     st.set_page_config(page_title="CERDA Dashboard", layout="wide")
+    require_login()   # before anything is loaded or auto-refreshed
     st_autorefresh(interval=3000, key="datarefresh")
     
     dash = CERDDashboard()
@@ -210,7 +222,7 @@ def main():
     st.title("CERDA: Counterfactual Execution-Rhythm Decoy Architecture")
     
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    kpi1.metric("Active Decoy Listeners", "Ports 2222, 8080", "Online")
+    kpi1.metric("Active Decoy Listeners", "Ports 2222, 2323, 8080", "Online" if decoy_running() else "Offline")
     kpi2.metric("Total Captured Sessions", len(dash.sessions_df))
     kpi3.metric("Attributed Threat Actors", dash.sessions_df["threat_actor_id"].nunique() if not dash.sessions_df.empty else 0)
     score = score_clusters(dash.sessions_df) if not dash.sessions_df.empty else {"ari": None, "labelled": 0, "sessions": 0}
@@ -222,10 +234,21 @@ def main():
     filters = dash.render_sidebar()
     sdf, tdf = dash.get_filtered_data(filters)
     
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "Live Sessions", "CERF Network Graph", "Tactics Scatter Plot", "Regime Timeline", "Export Intel"
+    tab6, tab7, tab8, tab9, tab10, tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Live Range", "Defense", "Malware", "Enrichment", "Replay", "Live Sessions", "CERF Network Graph", "Tactics Scatter Plot", "Regime Timeline",
+        "Export Intel"
     ])
-    
+
+    with tab6:
+        render_range_tab(dash.sessions_df)
+    with tab7:
+        render_defense_tab(dash.sessions_df, dash.telemetry_df)
+    with tab8:
+        render_malware_tab(dash.sessions_df)
+    with tab9:
+        render_enrichment_tab(dash.sessions_df)
+    with tab10:
+        render_replay_tab(dash.sessions_df, dash.telemetry_df)
     with tab1:
         dash.render_live_sessions(sdf)
     with tab2:
@@ -235,12 +258,4 @@ def main():
     with tab4:
         dash.render_regime_timeline(tdf, theme)
     with tab5:
-        st.subheader("Threat Intelligence Output")
-        json_payload = dash.export_threat_intel()
-        st.code(json_payload, language="json")
-        st.download_button(
-            label="Download STIX/JSON Intel",
-            data=json_payload,
-            file_name="cerda_threat_intel.json",
-            mime="application/json"
-        )
+        render_export_tab(dash.sessions_df, dash.telemetry_df, dash.export_threat_intel())

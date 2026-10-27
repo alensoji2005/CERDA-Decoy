@@ -5,6 +5,7 @@ services:
     ports:
       - "22:2222"        # real SSH decoy on the standard port (move your admin sshd first!)
       - "80:8080"        # HTTP decoy (Apache/WordPress lookalike)
+      - "23:2323"        # Telnet decoy (Mirai-style IoT bots)
     env_file:
       - path: .env
         required: false
@@ -15,6 +16,9 @@ services:
   dashboard:
     build: .
     command: ["streamlit", "run", "/app/dashboard.py", "--server.address=0.0.0.0"]
+    environment:
+      # Set a password before exposing the dashboard beyond localhost (or use CERDA_DASHBOARD_PASSWORD_FILE with a secret).
+      CERDA_DASHBOARD_PASSWORD: ${CERDA_DASHBOARD_PASSWORD:-}
     ports:
       - "127.0.0.1:8501:8501"   # dashboard is internal: bind to localhost only
     volumes:

@@ -1,6 +1,6 @@
 """Tools for judging CERF on real traffic, where no ground-truth actor labels exist.
 
-weak_labels:      link sessions that share a strong indicator (same dropper URL / same SSH key).
+weak_labels:      link sessions that share a strong indicator (same dropper URL / SSH key / captured payload).
 score_clusters:   adjusted Rand index of CERF's actors against those weak labels.
 ab_report:        score control sessions (perturbation off) vs treatment sessions (on).
 operator_type:    uncalibrated scripted-vs-interactive guess from timing alone.
@@ -13,8 +13,8 @@ from sklearn.metrics import adjusted_rand_score
 def weak_labels(sessions: pd.DataFrame) -> pd.Series:
     """Weak actor label per session (index = session_id), "" when the session has no strong indicator.
 
-    Two sessions get the same label if they share a download URL or an offered SSH public key
-    (directly or through a chain of such sessions). HASSH, user agent and header order are
+    Two sessions get the same label if they share a download URL, an offered SSH public key or the
+    SHA-256 of a captured payload (directly or through a chain of such sessions). HASSH, user agent and header order are
     deliberately excluded: thousands of unrelated attackers share the same client library.
     """
     parent = {}
@@ -27,10 +27,12 @@ def weak_labels(sessions: pd.DataFrame) -> pd.Series:
         return x
 
     linked = set()
-    for sid, urls, keys in zip(sessions["session_id"], sessions.get("download_urls", ""),
-                               sessions.get("pubkeys", "")):
+    column = lambda name: sessions[name] if name in sessions else [""] * len(sessions)  # logs from older runs lack some
+    for sid, urls, keys, hashes in zip(sessions["session_id"], column("download_urls"), column("pubkeys"),
+                                       column("payload_hashes")):
         indicators = [f"url:{u}" for u in str(urls).split() if u != "nan"]
         indicators += [f"key:{k.split(':', 1)[-1]}" for k in str(keys).split() if k != "nan"]
+        indicators += [f"sha:{h}" for h in str(hashes).split() if h != "nan"]
         for indicator in indicators:
             parent[find(indicator)] = find("session:" + sid)
             linked.add(sid)

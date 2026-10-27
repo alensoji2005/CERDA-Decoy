@@ -18,7 +18,7 @@ pip install -r requirements.txt
 Run everything from the repo root.
 
 ```bash
-python decoy_server.py [--tarpit] [--rl] # SSH decoy :2222, HTTP decoy :8080 -> telemetry.csv, auth.csv, regime_schedule.csv
+python decoy_server.py [--tarpit] [--rl] # SSH :2222, HTTP :8080, Telnet :2323 -> telemetry.csv, auth.csv, regime_schedule.csv
 python cerf_engine.py [telemetry.csv]   # fingerprint + cluster -> sessions.csv, cerf_clusters.json
 streamlit run dashboard.py              # threat intel dashboard
 python -m src.analytics.blocklist       # sessions.csv -> cerda_blocklist.txt / .nft (never auto-applied)
@@ -34,6 +34,12 @@ docker compose up --build
 Notes:
 - The SSH decoy is a real SSH-2 server (asyncssh) with an OpenSSH/Ubuntu banner. It logs every login attempt to `auth.csv`, accepts common passwords (or any password on the 3rd attempt from an IP), and supports both interactive shells and `ssh host cmd`. Its host key persists in `ssh_host_ed25519_key`.
 - The HTTP decoy looks like Ubuntu Apache with a neglected WordPress/phpMyAdmin. It serves honeytoken files (`/.env`, `/.git/config`, ...) and logs login form posts to `auth.csv`. Each source IP is one session, and every request is a perturbed "command".
+- The Telnet decoy (`:2323`, `DecoyConfig.telnet_port`, `None` disables it) is the same fake host behind a `login:` / `Password:` prompt, with the same accept policy as SSH. It understands Telnet option negotiation (a hash of what the client sent is logged as `telnet_opts`), line editing, and Mirai-style probes (`/bin/busybox NAME`, `echo -ne "\x7f..." >> file`).
+- Files an attacker writes, uploads or (if `fetch_payloads` is on) downloads are stored under their SHA-256 in `quarantine/` (never executed) and indexed in `samples.jsonl`; see the Malware tab.
+- SFTP and `scp` uploads are captured (a fully virtual SFTP server, nothing touches the host disk); `ssh -L`/`-D` channels are trapped (the decoy connects to nothing, it records the target and the attacker's first bytes) and `ssh -R` is refused.
+- Every session is recorded to `recordings/<session>.cast` (asciinema v2); the dashboard's Replay tab plays them back.
+- Set `CERDA_DASHBOARD_PASSWORD` (or `_FILE`) before exposing the dashboard beyond localhost.
+- Enrichment: run `python -m scripts.fetch_enrichment_data` once to get the offline country/ASN tables (public domain, from iptoasn.com); `sessions.csv` then has `country`, `asn`, `as_org`. Reputation lookups (AbuseIPDB, GreyNoise) are opt-in from the dashboard because they send IPs to a third party. The Export tab produces a STIX 2.1 bundle and a MISP event.
 - `--tarpit` shrinks the TCP receive window on the decoy's listening sockets so attacker sends are throttled at the network layer. The effect is strongest on Linux.
 - The blocklist exporter validates every IP. Review `cerda_blocklist.nft`, then apply it yourself with `sudo nft -f cerda_blocklist.nft`.
 

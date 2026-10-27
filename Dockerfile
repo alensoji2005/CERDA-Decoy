@@ -14,5 +14,5 @@ WORKDIR /data
 RUN useradd --system --uid 10001 cerda && chown cerda /data
 USER cerda
 
-EXPOSE 2222 8080 8501
+EXPOSE 2222 2323 8080 8501
 CMD ["python", "/app/decoy_server.py"]

@@ -32,10 +32,16 @@ def temp_env():
 
 def decoy_config(temp_dir, telemetry_path, **kw):
     from src.decoy import DecoyConfig
+    kw.setdefault("telnet_port", 0)
+    kw.setdefault("recordings_dir", os.path.join(temp_dir, "recordings"))
+    kw.setdefault("alerts_path", os.path.join(temp_dir, "alerts.jsonl"))
+    kw.setdefault("quarantine_dir", os.path.join(temp_dir, "quarantine"))
+    kw.setdefault("samples_path", os.path.join(temp_dir, "samples.jsonl"))
     return DecoyConfig(ssh_port=0, http_port=0, telemetry_path=telemetry_path,
                        regime_schedule_path=os.path.join(temp_dir, "sched.csv"),
                        auth_path=os.path.join(temp_dir, "auth.csv"),
                        signals_path=os.path.join(temp_dir, "signals.csv"),
+                       defense_path=os.path.join(temp_dir, "defense.db"),
                        ssh_host_key_path=os.path.join(temp_dir, "host_key"), **kw)
 
 
@@ -115,15 +121,17 @@ def _run_with_decoy(temp_dir, telemetry_path, client_fn, return_bufs=False, **co
 
     async def scenario():
         server = DecoyServer(host="127.0.0.1", config=config)
-        ssh, http = await server.start_listeners()
+        ssh, http, telnet = await server.start_listeners()
         socks = [ssh.sockets[0], http.sockets[0]]
-        ports = {"ssh": socks[0].getsockname()[1], "http": socks[1].getsockname()[1]}
+        ports = {"ssh": socks[0].getsockname()[1], "http": socks[1].getsockname()[1],
+                 "telnet": telnet.sockets[0].getsockname()[1]}
         try:
             result = await asyncio.wait_for(asyncio.to_thread(client_fn, ports), timeout=60)
             bufs = [s.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF) for s in socks]
             return (result, bufs) if return_bufs else result
         finally:
             ssh.close()
+            telnet.close()
             await http.close()
     return asyncio.run(scenario())
 

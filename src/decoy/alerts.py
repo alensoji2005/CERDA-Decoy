@@ -16,6 +16,7 @@ class AlertSink:
         self.webhook = webhook or os.getenv("CERDA_ALERT_WEBHOOK")
         self._lock = threading.Lock()
         self._seen = set()  # one alert per (session, kind, value)
+        self.tripped = set()  # sessions that touched bait (read by the defence for the canary rule)
 
     def send(self, session_id: str, source_ip: str, protocol: str, kind: str, value: str):
         key = (session_id, kind, value)
@@ -23,6 +24,7 @@ class AlertSink:
             if key in self._seen:
                 return
             self._seen.add(key)
+            self.tripped.add(session_id)
             alert = {"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "session_id": session_id,
                      "source_ip": source_ip, "protocol": protocol, "kind": kind, "value": str(value)[:512]}
             with open(self.path, "a", encoding="utf-8") as f:

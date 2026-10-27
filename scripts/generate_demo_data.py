@@ -1,10 +1,23 @@
 """Generate synthetic telemetry and run the CERF pipeline so the dashboard has data.
-Run from the repo root: python -m scripts.generate_demo_data
+Run from the folder the decoy uses: python -m scripts.generate_demo_data
+
+It never overwrites existing data. If telemetry.csv already exists it stops; with --force it first copies the
+old file to telemetry.csv.bak-<time> and then writes the synthetic sessions.
 """
+import os
+import shutil
+import sys
 import time
 import pandas as pd
 from src.analytics import CERFEngine
 from src.analytics.synthetic import generate_synthetic_data
+
+if os.path.exists("telemetry.csv"):
+    if "--force" not in sys.argv:
+        sys.exit("telemetry.csv already exists and was left untouched. Use a fresh folder, or add --force to back it up first.")
+    backup = f"telemetry.csv.bak-{time.strftime('%Y%m%d-%H%M%S')}"
+    shutil.copy2("telemetry.csv", backup)
+    print(f"existing telemetry.csv backed up to {backup}")
 
 print("Generating demo telemetry data...")
 df_a = generate_synthetic_data(num_sessions=20, script_type="A")

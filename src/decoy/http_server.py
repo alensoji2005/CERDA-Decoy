@@ -87,12 +87,17 @@ class HTTPDecoy:
         ip = request.remote or "0.0.0.0"
         if not self.decoy.http_limiter.allow(ip):
             return web.Response(status=503, text="Service Unavailable", headers={"Server": SERVER_HEADER})
+        if ip in self.decoy.defense.banned_ips():  # address banned because a blocked actor used it: drop the connection
+            self.decoy.defense.log_refused(ip, "HTTP")
+            request.transport.abort()
+            return web.Response(status=403)
         session = self._session_for(ip)
         if session.cmd_index == 0:  # first request of the session
             log = self.decoy.signal_logger.log
             log(session.session_id, ip, "HTTP", "header_order", header_order(request.raw_headers))
             log(session.session_id, ip, "HTTP", "user_agent", request.headers.get("User-Agent", ""))
         form = await request.post() if request.method == "POST" else {}
+        await self._capture_uploads(request, form, session)
         raw_cmd = f"{request.method} {request.path_qs}"
 
         result = {}
@@ -102,12 +107,28 @@ class HTTPDecoy:
             result.update(status=status, ctype=ctype)
             return body, request.path, weight
 
+        recorder = self.decoy.recorder
+        if recorder:
+            recorder.start(session.session_id, "HTTP", ip)
+            recorder.event(session.session_id, "o", f"$ {raw_cmd}\r\n")
         body, _ = await session.step(raw_cmd, execute)
+        if recorder:
+            recorder.event(session.session_id, "o", f"HTTP {result['status']} {result['ctype']} ({len(body)} bytes)\r\n")
         response = web.Response(status=result["status"], text=body, content_type=result["ctype"])
         response.headers["Server"] = SERVER_HEADER
         if result["status"] == 302:
             response.headers["Location"] = "/wp-login.php"
         return response
+
+    async def _capture_uploads(self, request: web.Request, form, session):
+        """Quarantine what an attacker pushes: a PUT body or a multipart file field (webshell, dropper)."""
+        capture = lambda data, source: self.decoy.capture(data, "upload", source, session.session_id,
+                                                          session.source_ip, "HTTP")
+        if request.method == "PUT":
+            capture(await request.read(), request.path)
+        for field in form.values():
+            if isinstance(field, web.FileField):
+                capture(field.file.read(), f"{request.path} {field.filename}")
 
     def route(self, request: web.Request, form, session) -> Tuple[int, str, str, int]:
         """-> (status, body, content_type, fs_weight)"""

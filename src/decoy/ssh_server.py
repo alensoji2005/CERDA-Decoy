@@ -3,6 +3,7 @@
 Every session runs through DecoyServer.run_session, so perturbation, the pseudo-FS
 and telemetry are identical to the raw TCP decoy. Nothing is ever executed on the host.
 """
+import asyncio
 import os
 import time
 import uuid
@@ -14,6 +15,7 @@ from asyncssh.packet import String
 
 from .pseudo_fs import HOSTNAME, PseudoFilesystem
 from .signals import hassh
+from .sftp_server import VirtualSFTP
 from .telemetry import AuthEvent
 
 # Looks like a stock Ubuntu 22.04 server (asyncssh prefixes "SSH-2.0-").
@@ -28,7 +30,22 @@ _attempts_by_ip: dict = {}
 # Attackers who reconnect find their earlier files and history still there, like a real host.
 FS_KEEP_SECONDS = 24 * 3600
 MAX_TRACKED_FS = 10_000
+MAX_FORWARDS_PER_SESSION = 5  # -L / -D channels a session may open before they are refused
+FORWARD_CAPTURE_BYTES = 4096  # what a trapped forward records of the attacker's first bytes
+FORWARD_HOLD_SECONDS = 10  # how long a trapped forward stays open waiting for them
 _fs_by_client: "OrderedDict[tuple, tuple]" = OrderedDict()  # (ip, user) -> (last_seen, PseudoFilesystem)
+
+
+def accept_login(key: str, password: str) -> bool:
+    """Shared by the SSH and Telnet decoys: common passwords work at once, anything else on the Nth attempt
+    from the same key (bots often reconnect per attempt). `key` is the source IP, prefixed by protocol if needed."""
+    if len(_attempts_by_ip) >= MAX_TRACKED_IPS:
+        _attempts_by_ip.clear()
+    attempts = _attempts_by_ip[key] = _attempts_by_ip.get(key, 0) + 1
+    accepted = password in COMMON_PASSWORDS or attempts >= ACCEPT_AFTER_ATTEMPTS
+    if accepted:
+        _attempts_by_ip.pop(key, None)
+    return accepted
 
 
 def filesystem_for(source_ip: str, username: str, session_id: str) -> PseudoFilesystem:
@@ -84,6 +101,39 @@ def shell_prompt(username: str):
     return prompt
 
 
+class _ForwardTrap(asyncssh.SSHTCPSession):
+    """Accepts a `-L` / `-D` channel but connects to nothing: it only records what the attacker sends first (a
+    proxied HTTP request, an SMTP greeting, a Redis command) and the target they wanted, then closes."""
+
+    def __init__(self, decoy, session_id, source_ip, target):
+        self.decoy, self.session_id, self.source_ip, self.target = decoy, session_id, source_ip, target
+        self.data, self.chan, self.saved = bytearray(), None, False
+
+    def connection_made(self, chan):
+        self.chan = chan
+        asyncio.get_running_loop().call_later(FORWARD_HOLD_SECONDS, self._finish)
+
+    def data_received(self, data, datatype):
+        self.data += data if isinstance(data, bytes) else data.encode("utf-8", "replace")
+        if len(self.data) >= FORWARD_CAPTURE_BYTES:
+            self._finish()
+
+    def eof_received(self):
+        self._finish()
+        return False
+
+    def connection_lost(self, exc):
+        self._finish(close=False)
+
+    def _finish(self, close: bool = True):
+        if not self.saved:
+            self.saved = True
+            self.decoy.capture(bytes(self.data[:FORWARD_CAPTURE_BYTES]), "forward", self.target, self.session_id,
+                               self.source_ip, "SSH")
+        if close and self.chan is not None:
+            self.chan.close()
+
+
 class _DecoySSHServer(asyncssh.SSHServer):
     """One instance per TCP connection."""
 
@@ -94,11 +144,16 @@ class _DecoySSHServer(asyncssh.SSHServer):
         self.conn = None
         self._hassh_logged = False
         self._holds_slot = False
+        self._forwards = 0
 
     def connection_made(self, conn: asyncssh.SSHServerConnection):
         self.conn = conn
         self.source_ip = conn.get_extra_info("peername")[0]
         conn.set_extra_info(cerda_session_id=self.session_id)
+        if self.source_ip in self.decoy.defense.banned_ips():  # banned because a blocked actor used this address
+            self.decoy.defense.log_refused(self.source_ip, "SSH")
+            conn.abort()
+            return
         self._holds_slot = self.decoy.conn_limiter.acquire(self.source_ip)
         if not self._holds_slot:  # too many connections from this IP (or in total): drop silently
             conn.abort()
@@ -122,6 +177,23 @@ class _DecoySSHServer(asyncssh.SSHServer):
         self._log_signal("pubkey", f"{username}:{key.get_fingerprint()}")
         return False
 
+    def connection_requested(self, dest_host, dest_port, orig_host, orig_port):
+        """`ssh -L` / `ssh -D`: the attacker wants to use this host as a proxy. Never connect anywhere."""
+        target = f"{dest_host}:{dest_port}"
+        self._log_signal("port_forward", f"L {target}")
+        self.decoy.alerts.send(self.session_id, self.source_ip, "SSH", "port_forward_attempt", f"proxy to {target}")
+        if self._forwards >= MAX_FORWARDS_PER_SESSION:
+            return False
+        self._forwards += 1
+        return _ForwardTrap(self.decoy, self.session_id, self.source_ip, target)
+
+    def server_requested(self, listen_host, listen_port):
+        """`ssh -R`: the attacker wants us to open a listening port. Refused, but recorded."""
+        self._log_signal("port_forward", f"R {listen_host}:{listen_port}")
+        self.decoy.alerts.send(self.session_id, self.source_ip, "SSH", "port_forward_attempt",
+                               f"remote listen {listen_host}:{listen_port}")
+        return False
+
     def _log_signal(self, kind: str, value: str):
         if not self._hassh_logged:  # first auth attempt: key exchange is complete
             self._hassh_logged = True
@@ -131,12 +203,7 @@ class _DecoySSHServer(asyncssh.SSHServer):
 
     def validate_password(self, username: str, password: str) -> bool:
         self._log_signal("login_attempt", f"{username}:{password}")  # wordlist order within the session
-        if len(_attempts_by_ip) >= MAX_TRACKED_IPS:
-            _attempts_by_ip.clear()
-        attempts = _attempts_by_ip[self.source_ip] = _attempts_by_ip.get(self.source_ip, 0) + 1
-        accepted = password in COMMON_PASSWORDS or attempts >= ACCEPT_AFTER_ATTEMPTS
-        if accepted:
-            _attempts_by_ip.pop(self.source_ip, None)
+        accepted = accept_login(self.source_ip, password)
         self.decoy.auth_logger.log_event(AuthEvent(
             session_id=self.session_id, timestamp_ns=time.time_ns(), source_ip=self.source_ip,
             protocol="SSH", username=username, password=password,
@@ -158,7 +225,7 @@ async def _handle_process(decoy, process: asyncssh.SSHServerProcess):
                 for cmd in process.command.split(";"):
                     yield cmd
             await decoy.run_session(lines(), process.stdout.write, process.stdout.drain, "SSH",
-                                    source_ip, prompt=None, session_id=session_id, fs=fs)
+                                    source_ip, prompt=None, session_id=session_id, fs=fs, terminate=conn.abort)
         else:
             process.stdout.write("Welcome to Ubuntu 22.04.4 LTS (GNU/Linux 5.15.0-105-generic x86_64)\r\n\r\n")
 
@@ -172,9 +239,21 @@ async def _handle_process(decoy, process: asyncssh.SSHServerProcess):
                         return
                     yield line
             await decoy.run_session(lines(), process.stdout.write, process.stdout.drain, "SSH",
-                                    source_ip, prompt=shell_prompt(username), session_id=session_id, fs=fs)
+                                    source_ip, prompt=shell_prompt(username), session_id=session_id, fs=fs,
+                                    terminate=conn.abort)
     finally:
         process.exit(0)
+
+
+def _sftp_factory(decoy):
+    def factory(chan):
+        conn = chan.get_connection()
+        session_id = conn.get_extra_info("cerda_session_id")
+        source_ip = conn.get_extra_info("peername")[0]
+        fs = filesystem_for(source_ip, chan.get_extra_info("username") or "root", session_id)
+        fs.alert = lambda kind, value: decoy.alerts.send(session_id, source_ip, "SSH", kind, value)  # bait reads
+        return VirtualSFTP(chan, decoy, fs, session_id, source_ip)
+    return factory
 
 
 async def start_ssh_decoy(decoy, sock) -> asyncssh.SSHAcceptor:
@@ -185,6 +264,8 @@ async def start_ssh_decoy(decoy, sock) -> asyncssh.SSHAcceptor:
         server_host_keys=[load_or_create_host_key(decoy.config.ssh_host_key_path)],
         server_version=SERVER_VERSION,
         process_factory=lambda process: _handle_process(decoy, process),
+        sftp_factory=_sftp_factory(decoy),  # SFTP and (through it) scp: virtual, never the host's disk
+        allow_scp=True,
         encoding="utf-8",
         login_timeout=60,
         keepalive_interval=30,

@@ -72,6 +72,9 @@ class PseudoFilesystem:
         self.command_history = []
         self.written = {}  # path -> contents written via `>` / `>>` / tee
         self.alert = lambda kind, value: None  # set by the session loop: raises canary alerts
+        self.on_write = lambda path, data: None  # set by the session loop: hands written files to the malware store
+        self.dirty = set()  # files written since the last flush_writes()
+        self.on_download = lambda url: None  # set by the session loop: starts a background payload fetch
         self.llm = LLMProvider(use_mock=True)
         self.virtual_tree = {k: list(v) for k, v in BASE_TREE.items()}
         if username == "root":
@@ -109,7 +112,9 @@ class PseudoFilesystem:
                 out, w = self._execute_pipeline(part)
                 outputs.append(out)
                 weight = max(weight, w)
-        return "".join(outputs), self.cwd, weight
+        # `echo -e '\x7f\x45...'` carries raw bytes as lone surrogates (see _echo); never send those to a terminal.
+        text = "".join(outputs).encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+        return text, self.cwd, weight
 
     def _execute_pipeline(self, line: str) -> Tuple[str, int]:
         """`cmd | filter | filter > file`: only the first stage is a real command; later stages
@@ -142,6 +147,18 @@ class PseudoFilesystem:
         if self._is_dir(posixpath.dirname(path)) and not self._is_dir(path):
             self._add_file(path)
             self.written[path] = (self.written.get(path, "") if append else "") + text
+            self.dirty.add(path)
+
+    def _capture(self, path: str):
+        if path in self.dirty and path in self.written:
+            self.dirty.discard(path)
+            self.on_write(path, self.written[path].encode("utf-8", "surrogateescape"))
+
+    def flush_writes(self):
+        """Hand every file written since the last flush to the malware store, in its final form. Droppers build a
+        binary with many `echo ... >> file` appends; storing each step would fill the quarantine with fragments."""
+        for path in sorted(self.dirty):
+            self._capture(path)
 
     def _filter(self, cmd: str, data: str) -> str:
         parts = cmd.split()
@@ -212,7 +229,15 @@ class PseudoFilesystem:
             return "".join(self._cat(t) for t in targets), 1
 
         if root == "echo":
-            return " ".join(a.strip("'\"") for a in args) + "\n", 0
+            return self._echo(args), 0
+
+        if root in ("busybox", "/bin/busybox"):
+            # IoT bots probe `/bin/busybox NAME` and expect "NAME: applet not found" for a made-up applet.
+            if not args:
+                return "BusyBox v1.30.1 (Ubuntu 1:1.30.1-7ubuntu3) multi-call binary.\n", 0
+            if args[0] in BUILTIN_COMMANDS:
+                return self._execute_one(" ".join(args))
+            return f"{args[0]}: applet not found\n", 0
 
         if root == "whoami":
             return self.username + "\n", 0
@@ -269,6 +294,7 @@ class PseudoFilesystem:
                 parent, name = posixpath.split(path)
                 if name in self.virtual_tree.get(parent, []) and path not in ("/", self.home):
                     self.virtual_tree[parent].remove(name)
+                    self._capture(path)  # droppers delete themselves after running: keep what they were
                     self.written.pop(path, None)
             return "", 1
 
@@ -304,6 +330,32 @@ class PseudoFilesystem:
 
         # Remaining commands come from the LLM provider (or its mock).
         return self.llm.generate_command_output(cmd, self.command_history), 0
+
+    @staticmethod
+    def _echo(args) -> str:
+        r"""echo with -n / -e. The escapes \xHH and \NNN produce raw bytes (the classic Mirai dropper writes its
+        binary with `echo -ne "\x7f\x45..." >> file`); they are kept as UTF-8 surrogate escapes so the exact
+        bytes reach the malware store."""
+        newline, escapes = True, False
+        while args and re.fullmatch(r"-[neE]+", args[0]):
+            newline = newline and "n" not in args[0]
+            escapes = ("e" in args[0]) or (escapes and "E" not in args[0])
+            args = args[1:]
+        text = " ".join(a.strip("'\"") for a in args)
+        if escapes:
+            simple = {"n": b"\n", "t": b"\t", "r": b"\r", "a": b"\a", "b": b"\b", "f": b"\f", "v": b"\v",
+                      "e": b"\x1b", "\\": b"\\"}
+
+            def expand(m):
+                esc = m.group(1)
+                if esc[0] == "x":
+                    return bytes([int(esc[1:], 16)])
+                if esc[0].isdigit():
+                    return bytes([int(esc, 8) & 0xFF])
+                return simple[esc]
+            text = re.sub(r"\\(x[0-9a-fA-F]{1,2}|0?[0-7]{1,3}|[ntrabfve\\])",
+                          lambda m: expand(m).decode("utf-8", "surrogateescape"), text)
+        return text + ("\n" if newline else "")
 
     def _ls(self, flags, targets) -> str:
         show_all = any("a" in f for f in flags)
@@ -364,8 +416,9 @@ class PseudoFilesystem:
             return f"{tool}: missing URL\n"
         url = urls[0]
         self.alert("download_attempt", url)
+        self.on_download(url)  # the reply below never waits for it; the decoy fetches in the background if enabled
         name = posixpath.basename(url.split("?")[0].rstrip("/")) or "index.html"
-        # Nothing is downloaded: the file only appears in the virtual tree.
+        # The attacker sees a canned reply and the file only appears in the virtual tree.
         if tool == "curl":
             if "-O" in flags:
                 self._add_file(self._resolve(name))
